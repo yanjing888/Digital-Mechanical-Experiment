@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>力学实验数字化平台</title>
+  <link rel="stylesheet" href="/css/app.css?v=5" />
+</head>
+<body>
+  <div id="screen-login" class="login-screen">
+    <div class="login-wrap">
+      <div class="login-hero">
+        <div class="login-hero-bg"></div>
+        <div class="login-hero-logo-wrap">
+          <img class="login-hero-logo-img" src="/assets/jyd-logo-white.png" alt="竞业达" />
+        </div>
+      </div>
+      <div class="login-form-side">
+        <div class="login-card">
+          <div class="login-card-head">
+            <h3>欢迎回来 👋</h3>
+            <p>请使用教师账号或学号登录系统</p>
+          </div>
+          <div class="login-field">
+            <label class="field-label" for="login-account">账号</label>
+            <input id="login-account" class="inp" autocomplete="username" placeholder="教师账号或学号" />
+          </div>
+          <div class="login-field">
+            <label class="field-label" for="login-password">密码</label>
+            <input id="login-password" class="inp" type="password" autocomplete="current-password" placeholder="请输入密码" />
+          </div>
+          <div class="login-options">
+            <label class="login-remember">
+              <input type="checkbox" id="login-remember" />
+              <span>记住账号</span>
+            </label>
+            <button type="button" class="linkish" id="btn-forgot">忘记密码？</button>
+          </div>
+          <button type="button" class="btn btn-primary btn-login" id="btn-login">登录</button>
+          <div class="login-foot-note">
+            登录即表示同意 <a href="#">服务条款</a> 和 <a href="#">隐私政策</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="screen-app" class="app hidden">
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="/assets/jyd-logo.png" alt="竞业达" />
+        <span class="brand-text">力学实验数字化平台</span>
+      </div>
+      <nav id="nav-teacher" class="topnav hidden" aria-label="教师导航">
+        <button type="button" class="nav-item active" data-p="t-assign">下发任务</button>
+        <button type="button" class="nav-item" data-p="t-grade">评阅打分</button>
+      </nav>
+      <nav id="nav-student" class="topnav flow-nav hidden" aria-label="学生流程">
+        <button type="button" class="nav-item active" data-p="s-home"><span class="fn-num">1</span>任务</button>
+        <span class="fn-line" data-line="1"></span>
+        <button type="button" class="nav-item" data-p="s-lab"><span class="fn-num">2</span>实验</button>
+        <span class="fn-line" data-line="2"></span>
+        <button type="button" class="nav-item" data-p="s-report"><span class="fn-num">3</span>报告</button>
+      </nav>
+      <div class="meta">
+        <span class="who" id="top-who">—</span>
+        <button type="button" class="linkish" id="btn-logout">退出</button>
+      </div>
+    </header>
+    <main class="main"><div class="stage" id="pages"></div></main>
+  </div>
+
+  <!-- 物小智 -->
+  <button type="button" class="wxz-fab hidden" id="wxz-fab" aria-label="打开物小智">
+    <img class="wxz-fab-img wxz-fab-idle" src="/assets/wxz-fab-idle.png" alt="" />
+    <img class="wxz-fab-img wxz-fab-hover" src="/assets/wxz-fab-hover.png" alt="" />
+  </button>
+  <div id="wxz-panel" class="wxz-panel hidden" role="dialog" aria-label="物小智助手">
+    <div class="wxz-head">
+      <div class="wxz-head-left">
+        <img class="wxz-avatar" id="wxz-avatar" src="/assets/wxz-fab-hover.png" alt="" />
+        <div>
+          <strong id="wxz-title">物小智</strong>
+          <div class="wxz-sub" id="wxz-subtitle">力学实验智能助手</div>
+        </div>
+      </div>
+      <div class="wxz-head-actions">
+        <button type="button" id="wxz-back" class="hidden" title="返回功能入口" aria-label="返回">←</button>
+        <button type="button" id="wxz-close" aria-label="关闭">✕</button>
+      </div>
+    </div>
+    <div id="wxz-home" class="wxz-home"></div>
+    <div id="wxz-chat" class="wxz-chat hidden">
+      <div class="wxz-chips" id="wxz-chips"></div>
+      <div class="wxz-msgs" id="wxz-msgs"></div>
+      <div class="wxz-input">
+        <input id="wxz-input" class="inp" placeholder="输入你的问题…" />
+        <button type="button" class="btn btn-primary btn-sm" id="wxz-send">发送</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-mask" class="modal-mask hidden">
+    <div class="modal" id="modal-box">
+      <h3 id="modal-title">提示</h3>
+      <div id="modal-body"></div>
+      <div class="modal-actions" id="modal-actions"></div>
+    </div>
+  </div>
+
+  <script src="/js/api.js?v=8"></script>
+  <script src="/js/tensile-curve-data.js?v=6"></script>
+  <script src="/js/richtext.js?v=6"></script>
+  <script src="/js/assistant.js?v=6"></script>
+  <script src="/js/app.js?v=10"></script>
+</body>
+</html>

@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+cn.ncut.lab.config.EnvFileEnvironmentPostProcessor

@@ -1,0 +1,23 @@
+{
+  "name": "lab-digital-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "北方工大力学实验数字化平台",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "seed": "node server/seed.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "multer": "^2.2.0",
+    "mysql2": "^3.23.2",
+    "nanoid": "^3.3.11",
+    "xlsx": "^0.18.5"
+  }
+}

@@ -1,0 +1,38 @@
+server:
+  port: 8586
+  tomcat:
+    connection-timeout: 180000
+
+spring:
+  application:
+    name: lab-digital-platform
+  datasource:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:lab_digital_platform}?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+  servlet:
+    multipart:
+      max-file-size: 6MB
+      max-request-size: 12MB
+  mvc:
+    async:
+      request-timeout: 180000
+
+fracture:
+  service-url: ${FRACTURE_URL:http://127.0.0.1:8090}
+
+dify:
+  enabled: ${DIFY_ENABLED:false}
+  api-url: ${DIFY_API_URL:https://api.dify.ai/v1}
+  api-key: ${DIFY_API_KEY:}
+  grading-api-key: ${DIFY_GRADING_API_KEY:}
+
+app:
+  student-default-password: ${STUDENT_DEFAULT_PASSWORD:123456}
+
+logging:
+  level:
+    root: INFO

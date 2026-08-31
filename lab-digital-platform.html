@@ -1,0 +1,2331 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>力学实验数字化平台</title>
+  <style>
+    :root {
+      --font: "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+      --font-mono: "Cascadia Code", "Consolas", "JetBrains Mono", monospace;
+      --primary-50: #F0FAFB;
+      --primary-100: #D9F0F3;
+      --primary-200: #B5E1E7;
+      --primary-300: #84CBD4;
+      --primary-400: #4CAEBB;
+      --primary-500: #0E7C8B;
+      --primary-600: #0C6A78;
+      --primary-700: #0A5663;
+      --bg: #F6F8F9;
+      --card: #FFFFFF;
+      --ink: #0F1720;
+      --soft: #445560;
+      --muted: #5B6B78;
+      --border: #DDE4E9;
+      --blue: #0E7C8B;
+      --blue-d: #0A5663;
+      --blue-s: #F0FAFB;
+      --teal: #0E7C8B;
+      --ok: #1F9D6B;
+      --ok-bg: #E3F5EC;
+      --warn: #C8810A;
+      --warn-bg: #FBF0DA;
+      --danger: #D4453A;
+      --info: #2E6FB0;
+      --info-bg: #E2ECF7;
+      --radius: 8px;
+      --shadow: 0 1px 3px rgba(15, 23, 32, .05);
+      --grid-line: rgba(14, 124, 139, 0.045);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: var(--font);
+      font-size: 15px;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select, textarea { font: inherit; }
+    .hidden { display: none !important; }
+    .sub { color: var(--muted); font-size: .86rem; }
+    .tag {
+      display: inline-block;
+      padding: .12rem .45rem;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: 600;
+      background: var(--primary-50);
+      color: var(--primary-700);
+    }
+    .tag.ok { background: var(--ok-bg); color: var(--ok); }
+    .tag.warn { background: var(--warn-bg); color: var(--warn); }
+    .tag.muted { background: #f1f5f9; color: #64748b; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
+      height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid transparent;
+      cursor: pointer; background: #fff; color: var(--ink); transition: .15s ease;
+    }
+    .btn:hover { filter: brightness(.98); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-primary:hover { background: var(--blue-d); }
+    .btn-ghost { border-color: var(--border); background: #fff; color: var(--soft); }
+    .btn-sm { height: 30px; padding: 0 10px; font-size: .82rem; }
+    .btn-danger { background: #fff; border-color: #fecaca; color: var(--danger); }
+    .inp, textarea.inp, select.inp {
+      width: 100%; border: 1px solid var(--border); border-radius: 8px;
+      padding: .55rem .7rem; background: #fff; color: var(--ink);
+    }
+    textarea.inp { min-height: 110px; resize: vertical; }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1rem 1.1rem; box-shadow: var(--shadow);
+    }
+    .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: .85rem; }
+    @media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    /* Login */
+    .login-screen {
+      min-height: 100vh; display: grid; place-items: center;
+      background:
+        radial-gradient(900px 420px at 15% 10%, rgba(14,124,139,.16), transparent 60%),
+        radial-gradient(700px 360px at 90% 80%, rgba(14,124,139,.10), transparent 55%),
+        linear-gradient(160deg, #F0FAFB, #F6F8F9 45%, #EEF2F4);
+      padding: 1.5rem;
+    }
+    .login-card {
+      width: min(420px, 100%); background: #fff; border-radius: 16px;
+      padding: 1.6rem 1.5rem 1.4rem; border: 1px solid var(--border); box-shadow: 0 16px 40px rgba(15,23,32,.08);
+    }
+    .login-card h1 { margin: 0 0 .25rem; font-size: 1.35rem; color: var(--primary-700); }
+    .role-pick { display: flex; gap: .8rem; margin: .9rem 0 1rem; }
+    .role-pick label {
+      flex: 1; display: flex; align-items: center; justify-content: center; gap: .4rem;
+      padding: .65rem; border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+    }
+    .role-pick input:checked + span { color: var(--blue); font-weight: 600; }
+    .role-pick:has(input:checked) label:has(input:checked) {
+      border-color: var(--blue); background: var(--blue-s);
+    }
+
+    /* App shell — top nav + wide stage */
+    .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .topbar {
+      flex-shrink: 0; background: #fff; border-bottom: 1px solid var(--border);
+      display: grid; grid-template-columns: minmax(200px, 1.1fr) auto minmax(180px, 1fr);
+      align-items: center; gap: .85rem; padding: .5rem clamp(1rem, 2.5vw, 2rem); min-height: 58px;
+    }
+    .topbar .brand {
+      display: flex; align-items: center; gap: .75rem; min-width: 0;
+    }
+    .topbar .brand-logo {
+      height: 32px; width: auto; display: block; flex-shrink: 0;
+    }
+    .topbar .brand-text {
+      font-weight: 700; font-size: .92rem; color: var(--primary-700); letter-spacing: .01em;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      padding-left: .75rem; border-left: 1px solid var(--border);
+    }
+    .topbar .meta {
+      justify-self: end; font-size: .82rem; color: var(--soft);
+      display: flex; gap: .45rem; align-items: center; flex-wrap: wrap; justify-content: flex-end;
+    }
+    .topbar .who { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .topbar .linkish {
+      background: #EEF2F4; border: 0; color: var(--soft);
+      border-radius: 8px; padding: .35rem .7rem; cursor: pointer;
+    }
+    .topbar .linkish:hover { background: #DDE4E9; color: var(--ink); }
+    .topnav { display: flex; align-items: center; gap: .35rem; justify-content: center; }
+    .topnav.hidden { display: none !important; }
+    .nav-item {
+      border: 0; background: transparent; color: var(--soft); cursor: pointer;
+      border-radius: 8px; padding: .45rem .95rem; font-size: .88rem; white-space: nowrap;
+    }
+    .nav-item:hover { background: #EEF2F4; color: var(--ink); }
+    .nav-item.active { background: var(--primary-50); color: var(--primary-700); font-weight: 600; border: 1px solid var(--primary-100); }
+    /* Student flow as sequential steps */
+    .flow-nav { display: flex; align-items: center; gap: 0; }
+    .flow-nav .nav-item {
+      display: inline-flex; align-items: center; gap: .4rem;
+      border-radius: 10px; padding: .42rem .7rem;
+      border: 1px solid transparent;
+    }
+    .flow-nav .fn-num {
+      width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+      font-size: .7rem; font-weight: 700; background: #DDE4E9; color: #5B6B78;
+    }
+    .flow-nav .nav-item.active .fn-num { background: var(--blue); color: #fff; }
+    .flow-nav .nav-item.done .fn-num { background: var(--ok); color: #fff; }
+    .flow-nav .fn-line {
+      width: 18px; height: 2px; background: #DDE4E9; flex-shrink: 0; margin: 0 .1rem;
+    }
+    .flow-nav .fn-line.on { background: var(--primary-300); }
+    .main {
+      flex: 1; overflow: auto; min-width: 0; min-height: 0;
+      background-color: var(--bg);
+      background-image:
+        linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+      background-size: 32px 32px;
+      background-attachment: local;
+      padding: 1.25rem clamp(1rem, 2.5vw, 2rem) 5.5rem;
+    }
+    .stage {
+      width: min(1280px, 100%);
+      margin: 0 auto;
+      min-height: calc(100% - 0.5rem);
+    }
+    .page-head {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      gap: .75rem; flex-wrap: wrap; margin-bottom: 1.15rem;
+    }
+    .page-kicker {
+      font-size: .72rem; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: .2rem;
+    }
+    .page-head h2 { margin: 0; font-size: 1.45rem; letter-spacing: -.01em; }
+    .page-meta { color: var(--muted); font-size: .86rem; margin-top: .2rem; }
+    .seg {
+      display: inline-flex; padding: 3px; background: #eef2f7; border-radius: 10px; gap: 2px;
+    }
+    .seg button {
+      border: 0; background: transparent; color: var(--soft); cursor: pointer;
+      border-radius: 8px; padding: .4rem .85rem; font-size: .86rem;
+    }
+    .seg button.on { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(15,23,42,.08); }
+    .panel-stack { display: flex; flex-direction: column; gap: 1rem; }
+    .done-bar {
+      display: flex; align-items: center; gap: .55rem; padding: .65rem .9rem;
+      background: var(--ok-bg); border: 1px solid #a7f3d0; border-radius: 10px;
+      color: var(--ok); font-size: .88rem; font-weight: 600;
+    }
+    .task-hero {
+      background: #fff; border: 1px solid var(--border); border-radius: 16px;
+      padding: 1.35rem 1.4rem 1.25rem; box-shadow: var(--shadow);
+    }
+    .task-hero .exp-name { font-size: 1.35rem; font-weight: 700; margin: 0 0 .55rem; }
+    .meta-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: .85rem 1.2rem;
+      margin: 1rem 0 1.15rem; font-size: .92rem;
+    }
+    @media (max-width: 860px) {
+      .topbar { grid-template-columns: 1fr; justify-items: stretch; }
+      .topnav { justify-content: flex-start; overflow-x: auto; }
+      .topbar .meta { justify-self: stretch; }
+      .topbar .brand-text { font-size: .82rem; }
+      .meta-grid { grid-template-columns: 1fr; }
+    }
+    .field-label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: .28rem; }
+    .section-title { margin: 0 0 .7rem; font-size: 1rem; }
+
+    .table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    .table th, .table td {
+      border-bottom: 1px solid var(--border); padding: .55rem .45rem; text-align: left; vertical-align: middle;
+    }
+    .table th { font-size: .78rem; color: var(--muted); font-weight: 600; background: #fafafa; }
+    .pill-group {
+      display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .5rem;
+      border-radius: 999px; background: #f1f5f9; font-size: .78rem; color: var(--soft);
+    }
+
+    /* Lab */
+    .lab-stepper { display: flex; align-items: center; gap: .35rem; margin: .2rem 0 1rem; flex-wrap: wrap; }
+    .ls-step {
+      display: flex; align-items: center; gap: .45rem; padding: .4rem .65rem;
+      border-radius: 999px; background: #fff; border: 1px solid var(--border); font-size: .82rem;
+      font-family: inherit; color: inherit; line-height: 1.2;
+    }
+    button.ls-step { cursor: pointer; }
+    button.ls-step:hover { border-color: var(--primary-300); }
+    button.ls-step:focus-visible { outline: 2px solid var(--primary-300); outline-offset: 2px; }
+    .ls-step[aria-disabled="true"] { opacity: .55; cursor: default; }
+    .ls-step.on { border-color: var(--blue); background: var(--blue-s); color: var(--blue-d); font-weight: 600; }
+    .ls-step.done { border-color: #a7f3d0; background: var(--ok-bg); color: var(--ok); }
+    .ls-num {
+      width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+      background: #e2e8f0; font-size: .75rem; font-weight: 700;
+    }
+    .ls-step.on .ls-num { background: var(--blue); color: #fff; }
+    .ls-step.done .ls-num { background: var(--ok); color: #fff; }
+    .ls-line { width: 28px; height: 2px; background: #DDE4E9; }
+    .ls-line.done, .ls-line.on { background: var(--primary-300); }
+    .dash-row { display: flex; gap: .7rem; flex-wrap: wrap; margin: .5rem 0; }
+    .dash-digital {
+      min-width: 140px; flex: 1; background: #0f172a; color: #e2e8f0;
+      border-radius: 10px; padding: .7rem .85rem;
+    }
+    .dash-digital .lab { font-size: .72rem; color: #94a3b8; }
+    .dash-digital .val { font-size: 1.55rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #7dd3fc; }
+    .dash-digital .u { font-size: .75rem; color: #94a3b8; }
+    .chart-wrap {
+      margin-top: .5rem; background: #fafafa; border: 1px solid var(--border);
+      border-radius: 10px; padding: .65rem;
+    }
+    .chart-wrap h4 { margin: 0 0 .35rem; font-size: .9rem; }
+    .kpi-grid {
+      display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: .45rem .8rem;
+      font-size: .86rem; margin-top: .4rem;
+    }
+    @media (max-width: 700px) { .kpi-grid { grid-template-columns: 1fr 1fr; } }
+    .frac-preview {
+      width: 100%; max-width: 280px; max-height: 180px; object-fit: cover;
+      border: 1px solid var(--border); border-radius: 8px; background: #fff;
+    }
+    .fa-status-bar {
+      display: flex; align-items: center; gap: .75rem;
+      background: var(--info-bg); border-radius: var(--radius);
+      padding: .85rem 1rem .85rem .75rem; position: relative; overflow: hidden;
+      box-shadow: var(--shadow); margin-bottom: 1rem;
+    }
+    .fa-status-bar::before {
+      content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+      background: var(--info);
+    }
+    .fa-main { display: flex; gap: 1.1rem; align-items: stretch; margin-bottom: 1.1rem; }
+    .fa-panel-left { flex: 8 8 0; min-width: 0; }
+    .fa-panel-right {
+      flex: 4 4 0; min-width: 0; border-top: 3px solid var(--blue);
+    }
+    @media (max-width: 960px) {
+      .fa-main { flex-direction: column; }
+      .fa-panel-left, .fa-panel-right { flex: 1 1 auto; }
+    }
+    .fa-img-stage {
+      position: relative; width: 100%; background: #0F1720;
+      border-radius: var(--radius); overflow: hidden;
+    }
+    .fa-img-stage img {
+      display: block; width: 100%; max-height: 360px; object-fit: contain;
+    }
+    .fa-feature-box {
+      position: absolute; border: 1.5px dashed var(--primary-300);
+      border-radius: 4px; background: rgba(132, 203, 212, 0.10); pointer-events: none;
+    }
+    .fa-feature-tag {
+      position: absolute; top: -22px; left: -1px;
+      background: var(--blue); color: #fff; font-size: 11px; font-weight: 600;
+      padding: 2px 8px; border-radius: 4px; white-space: nowrap;
+    }
+    .fa-conf-track { width: 100%; height: 8px; background: #EEF2F4; border-radius: 999px; overflow: hidden; }
+    .fa-conf-fill { height: 100%; background: var(--blue); border-radius: 999px; }
+    .fa-verdict {
+      font-size: 1.5rem; font-weight: 700; color: var(--blue);
+      line-height: 1.2; margin: .15rem 0 .85rem;
+    }
+    .fa-ref-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .9rem; }
+    @media (max-width: 900px) { .fa-ref-grid { grid-template-columns: repeat(2, 1fr); } }
+    .fa-ref-card {
+      display: flex; flex-direction: column; border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden; background: var(--card);
+    }
+    .fa-ref-card[data-selected="true"] {
+      border: 2px solid var(--blue); box-shadow: 0 0 0 3px var(--primary-50);
+    }
+    .fa-ref-thumb {
+      position: relative; width: 100%; aspect-ratio: 4 / 3;
+      background: #EEF2F4; overflow: hidden;
+    }
+    .fa-ref-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .fa-ref-placeholder {
+      width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+      background: repeating-linear-gradient(45deg, #EEF2F4 0 8px, #DDE4E9 8px 16px);
+      color: #8A9AA6; font-size: .78rem;
+    }
+    .fa-ref-match {
+      position: absolute; top: 8px; right: 8px;
+      font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px;
+      background: rgba(255,255,255,.92); color: var(--muted); border: 1px solid var(--border);
+    }
+    .fa-ref-card[data-selected="true"] .fa-ref-match {
+      background: var(--blue); color: #fff; border-color: var(--blue);
+    }
+    .fa-ref-body { padding: .7rem .8rem .85rem; }
+    .rm-alert {
+      display: flex; align-items: center; gap: .75rem;
+      border-radius: var(--radius); padding: .85rem 1rem .85rem .75rem;
+      position: relative; overflow: hidden; box-shadow: var(--shadow); margin-bottom: 1rem;
+    }
+    .rm-alert::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+    .rm-alert.is-live { background: var(--info-bg); }
+    .rm-alert.is-live::before { background: var(--info); }
+    .rm-alert.is-paused { background: var(--warn-bg); }
+    .rm-alert.is-paused::before { background: var(--warn); }
+    .rm-alert.is-break { background: #FBE6E4; }
+    .rm-alert.is-break::before { background: var(--danger); }
+    .rm-main { display: flex; gap: 1.1rem; align-items: stretch; margin-bottom: 1.1rem; }
+    .rm-panel-left { flex: 4 4 0; min-width: 0; }
+    .rm-panel-right { flex: 8 8 0; min-width: 0; }
+    @media (max-width: 960px) {
+      .rm-main { flex-direction: column; }
+      .rm-panel-left, .rm-panel-right { flex: 1 1 auto; }
+    }
+    .rm-data-stack { display: flex; flex-direction: column; gap: .85rem; }
+    .rm-data-block { display: flex; flex-direction: column; gap: .15rem; }
+    .rm-data-label { font-size: .78rem; color: var(--muted); }
+    .rm-data-value { display: flex; align-items: baseline; gap: .35rem; }
+    .rm-data-num {
+      font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums;
+      font-size: 1.5rem; font-weight: 700; color: var(--blue); line-height: 1.1;
+    }
+    .rm-data-unit { font-size: .78rem; color: var(--muted); }
+    .rm-data-divider { height: 1px; background: var(--border); }
+    .rm-chart-wrap {
+      position: relative; width: 100%; height: 360px;
+      background: #fff; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+    }
+    .rm-chart-wrap canvas { width: 100% !important; height: 100% !important; display: block; }
+    .rm-chart-foot {
+      margin-top: .85rem; padding-top: .85rem; border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem;
+      font-size: .78rem; color: var(--muted);
+    }
+    .rm-chart-foot strong { color: var(--ink); font-family: var(--font-mono, monospace); font-weight: 600; }
+    .rm-timeline { display: flex; align-items: flex-start; width: 100%; }
+    .rm-stage {
+      flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
+      align-items: center; text-align: center; gap: .5rem;
+    }
+    .rm-stage-top { display: flex; align-items: center; width: 100%; height: 12px; }
+    .rm-stage-line { flex: 1; height: 2px; background: var(--border); }
+    .rm-stage-line.on { background: var(--ok); }
+    .rm-stage-dot {
+      width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+      box-sizing: border-box; background: transparent; border: 1.5px solid var(--border);
+    }
+    .rm-stage[data-st="done"] .rm-stage-dot { background: var(--ok); border-color: var(--ok); }
+    .rm-stage[data-st="active"] .rm-stage-dot {
+      background: var(--blue); border-color: var(--blue); box-shadow: 0 0 0 4px var(--primary-50);
+    }
+    .rm-stage[data-st="break"] .rm-stage-dot {
+      background: var(--danger); border-color: var(--danger); box-shadow: 0 0 0 4px #FBE6E4;
+    }
+    .rm-stage-name { font-size: .86rem; font-weight: 600; color: var(--muted); }
+    .rm-stage[data-st="done"] .rm-stage-name,
+    .rm-stage[data-st="active"] .rm-stage-name { color: var(--ink); }
+    .rm-stage[data-st="break"] .rm-stage-name { color: var(--danger); font-weight: 700; }
+    .rm-stage-meta { font-size: .75rem; color: var(--muted); font-family: var(--font-mono, monospace); }
+    .check-list label {
+      display: flex; align-items: flex-start; gap: .45rem; padding: .45rem .55rem;
+      border: 1px solid var(--border); border-radius: 8px; margin-bottom: .4rem; cursor: pointer;
+      background: #fff;
+    }
+    .check-list label:has(input:checked) { border-color: var(--blue); background: var(--blue-s); }
+    .member-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+    .member-chip {
+      padding: .2rem .55rem; border-radius: 999px; background: #EEF2F4;
+      font-size: .78rem; border: 1px solid transparent; cursor: pointer;
+    }
+    .member-chip.on { background: var(--blue-s); border-color: var(--primary-200); color: var(--blue-d); font-weight: 600; }
+    .member-chip.used { opacity: .45; cursor: not-allowed; }
+
+    /* Report */
+    .report-sec { margin-top: .85rem; }
+    .report-sec h3 { margin: 0 0 .4rem; font-size: 1rem; }
+    .report-body {
+      background: #fff; border: 1px solid var(--border); border-radius: 8px;
+      padding: .85rem 1rem; font-size: .9rem; line-height: 1.65;
+    }
+    .report-body h4 { margin: .85rem 0 .3rem; font-size: .95rem; color: var(--primary-700); }
+    .score-box {
+      display: flex; gap: .6rem; align-items: end; flex-wrap: wrap;
+      padding: .75rem; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;
+    }
+    .score-box label { font-size: .8rem; color: var(--muted); display: flex; flex-direction: column; gap: .25rem; }
+    .score-box input { width: 90px; }
+
+    /* Modal */
+    .modal-mask {
+      position: fixed; inset: 0; background: rgba(11,22,40,.48);
+      display: flex; align-items: center; justify-content: center; z-index: 40; padding: 1rem;
+    }
+    .modal {
+      width: min(760px, 100%); max-height: min(88vh, 900px); overflow: auto;
+      background: #fff; border-radius: 14px; padding: 1.1rem 1.2rem 1.15rem;
+      box-shadow: 0 20px 50px rgba(0,0,0,.18);
+    }
+    .modal.wide { width: min(980px, 100%); }
+    .modal h3 { margin: 0 0 .55rem; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
+
+    /* 物小智 */
+    .wxz-fab {
+      position: fixed; right: 2.85rem; bottom: 3rem; z-index: 50;
+      width: 96px; height: 96px; padding: 0; border: 0; border-radius: 50%;
+      background: transparent; cursor: pointer;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, .18);
+      transition: transform .18s ease, box-shadow .18s ease;
+    }
+    .wxz-fab:hover, .wxz-fab.is-open {
+      transform: translateY(-2px) scale(1.04);
+      box-shadow: 0 12px 28px rgba(37, 99, 235, .28);
+    }
+    .wxz-fab-img {
+      width: 100%; height: 100%; object-fit: contain; display: block;
+      filter: drop-shadow(0 2px 6px rgba(0,0,0,.18));
+      pointer-events: none;
+    }
+    .wxz-fab .wxz-fab-hover { display: none; }
+    .wxz-fab:hover .wxz-fab-idle,
+    .wxz-fab.is-open .wxz-fab-idle { display: none; }
+    .wxz-fab:hover .wxz-fab-hover,
+    .wxz-fab.is-open .wxz-fab-hover { display: block; }
+    .wxz-panel {
+      position: fixed; right: 2.85rem; bottom: 7.6rem; z-index: 50;
+      width: min(400px, calc(100vw - 1.5rem)); height: min(560px, calc(100vh - 8rem));
+      background: #fff; border-radius: 16px; border: 1px solid #dbe3f0;
+      box-shadow: 0 18px 40px rgba(15,23,42,.16); display: flex; flex-direction: column; overflow: hidden;
+    }
+    .wxz-head {
+      padding: .7rem .85rem; background: linear-gradient(135deg, #2563eb, #0f766e);
+      color: #fff; display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+    }
+    .wxz-head-left { display: flex; align-items: center; gap: .55rem; min-width: 0; }
+    .wxz-avatar {
+      width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,.2);
+      object-fit: contain; flex-shrink: 0;
+    }
+    .wxz-head strong { font-size: .95rem; display: block; }
+    .wxz-head .wxz-sub { font-size: .72rem; opacity: .88; margin-top: .1rem; }
+    .wxz-head-actions { display: flex; gap: .3rem; flex-shrink: 0; }
+    .wxz-head button {
+      border: 0; background: rgba(255,255,255,.16); color: #fff;
+      width: 30px; height: 30px; border-radius: 8px; cursor: pointer;
+    }
+    .wxz-home {
+      flex: 1; overflow: auto; padding: .85rem; background:
+        radial-gradient(420px 180px at 100% 0%, rgba(37,99,235,.08), transparent 60%),
+        #fbfcfe;
+    }
+    .wxz-home-hi { font-size: .92rem; margin: 0 0 .25rem; color: var(--ink); }
+    .wxz-home-desc { margin: 0 0 .85rem; font-size: .78rem; color: var(--muted); line-height: 1.5; }
+    .wxz-skill {
+      display: flex; gap: .7rem; align-items: flex-start; width: 100%;
+      text-align: left; border: 1px solid var(--border); background: #fff;
+      border-radius: 12px; padding: .75rem .8rem; margin-bottom: .55rem; cursor: pointer;
+      transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+    }
+    .wxz-skill:hover {
+      border-color: #93c5fd; box-shadow: 0 4px 14px rgba(37,99,235,.08); transform: translateY(-1px);
+    }
+    .wxz-skill-ico {
+      width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center;
+      font-size: 1.1rem; flex-shrink: 0; background: var(--blue-s); color: var(--blue-d);
+    }
+    .wxz-skill strong { display: block; font-size: .9rem; color: var(--ink); margin-bottom: .15rem; }
+    .wxz-skill span { display: block; font-size: .74rem; color: var(--muted); line-height: 1.45; }
+    .wxz-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .wxz-chips { display: flex; flex-wrap: wrap; gap: .35rem; padding: .55rem .7rem; border-bottom: 1px solid var(--border); background: #f8fafc; }
+    .wxz-chips button {
+      border: 1px solid #dbe3f0; background: #fff; border-radius: 999px;
+      padding: .2rem .55rem; font-size: .72rem; color: var(--soft); cursor: pointer;
+    }
+    .wxz-msgs { flex: 1; overflow: auto; padding: .75rem; display: flex; flex-direction: column; gap: .55rem; background: #fbfcfe; }
+    .wxz-msg { max-width: 92%; padding: .55rem .7rem; border-radius: 12px; font-size: .86rem; line-height: 1.5; white-space: pre-wrap; }
+    .wxz-msg.bot { align-self: flex-start; background: #fff; border: 1px solid var(--border); color: var(--ink); }
+    .wxz-msg.me { align-self: flex-end; background: var(--blue); color: #fff; border-bottom-right-radius: 4px; }
+    .wxz-input {
+      display: flex; gap: .4rem; padding: .65rem; border-top: 1px solid var(--border); background: #fff;
+    }
+    .wxz-input input { flex: 1; }
+    .empty {
+      text-align: center; color: var(--muted); padding: 2rem 1rem; font-size: .9rem;
+    }
+    .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: .7rem; margin-bottom: 1rem; }
+    @media (max-width: 700px) { .stat-row { grid-template-columns: 1fr; } }
+    .stat {
+      background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: .85rem 1rem;
+    }
+    .stat .n { font-size: 1.5rem; font-weight: 700; color: var(--blue-d); }
+    .stat .l { font-size: .78rem; color: var(--muted); margin-top: .1rem; }
+    .notice {
+      border-left: 3px solid var(--blue); background: #f8faff; padding: .7rem .85rem;
+      border-radius: 0 8px 8px 0; margin-bottom: .9rem;
+    }
+    .file-drop {
+      border: 1px dashed #cbd5e1; border-radius: 10px; padding: .85rem;
+      background: #fafafa; font-size: .86rem; color: var(--soft);
+    }
+  </style>
+</head>
+<body>
+  <!-- 登录 -->
+  <div id="screen-login" class="login-screen">
+    <div class="login-card">
+      <h1>力学实验数字化平台</h1>
+      <div class="role-pick">
+        <label><input type="radio" name="role" value="student" checked /><span>学生</span></label>
+        <label><input type="radio" name="role" value="teacher" /><span>教师</span></label>
+      </div>
+      <div id="login-stu">
+        <label class="sub" for="sel-stu" style="display:block;margin:0 0 .3rem">选择学号</label>
+        <select id="sel-stu" class="inp"></select>
+      </div>
+      <div id="login-tea" class="hidden">
+        <label class="sub" for="sel-tea" style="display:block;margin:0 0 .3rem">选择教师</label>
+        <select id="sel-tea" class="inp"></select>
+      </div>
+      <button type="button" class="btn btn-primary" id="btn-login" style="width:100%;margin-top:1rem">进入平台</button>
+    </div>
+  </div>
+
+  <!-- 主应用：顶栏导航 + 居中内容 -->
+  <div id="screen-app" class="app hidden">
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="assets/jyd-logo.png" alt="竞业达" />
+        <span class="brand-text">力学实验数字化平台</span>
+      </div>
+      <nav id="nav-teacher" class="topnav hidden" aria-label="教师导航">
+        <button type="button" class="nav-item active" data-p="t-assign">下发任务</button>
+        <button type="button" class="nav-item" data-p="t-grade">评阅打分</button>
+      </nav>
+      <nav id="nav-student" class="topnav flow-nav hidden" aria-label="学生流程">
+        <button type="button" class="nav-item active" data-p="s-home"><span class="fn-num">1</span>任务</button>
+        <span class="fn-line" data-line="1"></span>
+        <button type="button" class="nav-item" data-p="s-lab"><span class="fn-num">2</span>实验</button>
+        <span class="fn-line" data-line="2"></span>
+        <button type="button" class="nav-item" data-p="s-report"><span class="fn-num">3</span>报告</button>
+      </nav>
+      <div class="meta">
+        <span class="who" id="top-who">—</span>
+        <button type="button" class="linkish" id="btn-reset" title="重置本地数据">重置</button>
+        <button type="button" class="linkish" id="btn-logout">退出</button>
+      </div>
+    </header>
+    <main class="main"><div class="stage" id="pages"></div></main>
+  </div>
+
+  <!-- 物小智：默认=站立图，悬停/打开=挥手图 -->
+  <button type="button" class="wxz-fab hidden" id="wxz-fab" aria-label="打开物小智">
+    <img class="wxz-fab-img wxz-fab-idle" src="assets/wxz-fab-idle.png" alt="" />
+    <img class="wxz-fab-img wxz-fab-hover" src="assets/wxz-fab-hover.png" alt="" />
+  </button>
+  <div id="wxz-panel" class="wxz-panel hidden" role="dialog" aria-label="物小智助手">
+    <div class="wxz-head">
+      <div class="wxz-head-left">
+        <img class="wxz-avatar" id="wxz-avatar" src="assets/wxz-fab-hover.png" alt="" />
+        <div>
+          <strong id="wxz-title">物小智</strong>
+          <div class="wxz-sub" id="wxz-subtitle">力学实验智能助手</div>
+        </div>
+      </div>
+      <div class="wxz-head-actions">
+        <button type="button" id="wxz-back" class="hidden" title="返回功能入口" aria-label="返回">←</button>
+        <button type="button" id="wxz-close" aria-label="关闭">✕</button>
+      </div>
+    </div>
+    <!-- 功能入口首页 -->
+    <div id="wxz-home" class="wxz-home"></div>
+    <!-- 具体能力对话 -->
+    <div id="wxz-chat" class="wxz-chat hidden">
+      <div class="wxz-chips" id="wxz-chips"></div>
+      <div class="wxz-msgs" id="wxz-msgs"></div>
+      <div class="wxz-input">
+        <input id="wxz-input" class="inp" placeholder="输入你的问题…" />
+        <button type="button" class="btn btn-primary btn-sm" id="wxz-send">发送</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通用弹窗 -->
+  <div id="modal-mask" class="modal-mask hidden">
+    <div class="modal" id="modal-box">
+      <h3 id="modal-title">提示</h3>
+      <div id="modal-body"></div>
+      <div class="modal-actions" id="modal-actions"></div>
+    </div>
+  </div>
+
+  <script>
+(function () {
+  'use strict';
+
+  var STORAGE_KEY = 'lab-digital-platform-lite-v1';
+  var WXZ_SESSION_KEY = 'lab-wuxiaozhi-session-v1';
+
+  var EXPS = [
+    { id: 'TENS', name: '材料拉伸', hours: 2, tip: '测定低碳钢拉伸曲线、屈服与抗拉强度，观察断口形貌。' },
+    { id: 'COMP', name: '材料压缩', hours: 2, tip: '测定压缩强度与破坏形态。' }
+  ];
+
+  var DEMO_TEACHERS = ['王老师', '李老师', '张老师'];
+
+  /** 预置小组：以组为主，不走课堂/自然班教务模型 */
+  var DEMO_GROUPS = [
+    { id: 'G1', name: '第1组', members: [
+      { sid: '2025010101', name: '李思', cls: '土木25-1' },
+      { sid: '2025010102', name: '王晨', cls: '土木25-1' },
+      { sid: '2025010103', name: '赵雨桐', cls: '土木25-1' }
+    ]},
+    { id: 'G2', name: '第2组', members: [
+      { sid: '2025010201', name: '吴桐', cls: '土木25-2' },
+      { sid: '2025010202', name: '郑岩', cls: '土木25-2' },
+      { sid: '2025010203', name: '马一鸣', cls: '土木25-2' }
+    ]},
+    { id: 'G3', name: '第3组', members: [
+      { sid: '2025010301', name: '蓝若曦', cls: '土木25-3' },
+      { sid: '2025010302', name: '邵清', cls: '土木25-3' },
+      { sid: '2025010303', name: '柏舟', cls: '土木25-3' }
+    ]},
+    { id: 'G4', name: '第4组', members: [
+      { sid: '2025020101', name: '刘悦', cls: '建筑25' },
+      { sid: '2025020102', name: '高翔', cls: '建筑25' },
+      { sid: '2025020103', name: '陆瑶', cls: '建筑25' }
+    ]}
+  ];
+
+  function allStudentsFlat() {
+    var list = [];
+    DEMO_GROUPS.forEach(function (g) {
+      g.members.forEach(function (m) {
+        list.push({ sid: m.sid, name: m.name, cls: m.cls, groupId: g.id, groupName: g.name });
+      });
+    });
+    return list;
+  }
+
+  function stuDef(meta) {
+    return {
+      name: meta.name,
+      cls: meta.cls,
+      groupId: meta.groupId,
+      groupName: meta.groupName,
+      status: 'none', // none | assigned | in_lab | lab_done | submitted
+      taskId: null,
+      expId: null,
+      expName: null,
+      note: '',
+      place: '',
+      timeText: '',
+      doorClosed: false,
+      expFlow: 'wait_door', // wait_door | acquiring | post_break | done_viz
+      acqPaused: false,
+      acq: { points: [], t0: 0 },
+      maxF: 0,
+      maxD: 0,
+      fractureImg: null,
+      fractureType: null,
+      fractureConf: 0,
+      personal: {
+        steps: '',
+        analysis: '',
+        reflection: '',
+        fileName: '',
+        fileDataUrl: ''
+      },
+      personalSubmitted: false,
+      personalSubmittedAt: null,
+      personalScore: null,
+      personalComment: '',
+      groupConfirmed: false
+    };
+  }
+
+  function createInitialState() {
+    var students = {};
+    allStudentsFlat().forEach(function (m) {
+      students[m.sid] = stuDef(m);
+    });
+    return {
+      role: null,
+      studentId: null,
+      teacherName: null,
+      page: null,
+      tasks: [], // { id, expId, expName, groupIds[], place, timeText, note, createdAt, teacher }
+      groupReports: {}, // key: taskId|groupId
+      students: students,
+      wxzOpen: false,
+      wxzView: 'home', // home | chat
+      wxzSkill: null,
+      wxzMsgs: []
+    };
+  }
+
+  var state = loadState() || createInitialState();
+  var acqTimer = null;
+
+  function loadState() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      var o = JSON.parse(raw);
+      if (!o || !o.students) return null;
+      return o;
+    } catch (e) { return null; }
+  }
+  function saveState() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function uid(prefix) {
+    return (prefix || 'id') + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
+  function getStu() {
+    return state.students[state.studentId] || null;
+  }
+  function findGroup(gid) {
+    for (var i = 0; i < DEMO_GROUPS.length; i++) if (DEMO_GROUPS[i].id === gid) return DEMO_GROUPS[i];
+    return null;
+  }
+  function findExp(id) {
+    for (var i = 0; i < EXPS.length; i++) if (EXPS[i].id === id) return EXPS[i];
+    return null;
+  }
+  function statusLabel(st) {
+    return ({
+      none: '未分配',
+      assigned: '已下发',
+      in_lab: '实验中',
+      lab_done: '待交个人报告',
+      submitted: '已提交'
+    })[st] || st;
+  }
+  function statusTag(st) {
+    var cls = st === 'submitted' ? 'ok' : (st === 'in_lab' ? 'warn' : (st === 'none' ? 'muted' : ''));
+    return '<span class="tag ' + cls + '">' + esc(statusLabel(st)) + '</span>';
+  }
+  function groupReportKey(taskId, groupId) {
+    return taskId + '|' + groupId;
+  }
+  function ensureGroupReport(taskId, groupId) {
+    var key = groupReportKey(taskId, groupId);
+    if (!state.groupReports[key]) {
+      state.groupReports[key] = {
+        taskId: taskId,
+        groupId: groupId,
+        data: null,
+        html: '',
+        confirmedBy: [],
+        submitted: false,
+        submittedAt: null,
+        score: null,
+        comment: '',
+        sourceSid: null
+      };
+    }
+    return state.groupReports[key];
+  }
+
+  /* ========== Modal ========== */
+  function closeModal() {
+    document.getElementById('modal-mask').classList.add('hidden');
+  }
+  function openModal(title, bodyHtml, actionsHtml, wide) {
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = bodyHtml;
+    document.getElementById('modal-actions').innerHTML = actionsHtml || '<button type="button" class="btn btn-ghost" data-close>关闭</button>';
+    var box = document.getElementById('modal-box');
+    box.classList.toggle('wide', !!wide);
+    document.getElementById('modal-mask').classList.remove('hidden');
+    document.getElementById('modal-actions').onclick = function (e) {
+      if (e.target && e.target.getAttribute('data-close') != null) closeModal();
+    };
+  }
+
+  /* ========== 物小智 ========== */
+  var WXZ_SKILLS = {
+    teacher: [
+      {
+        id: 't-analyze',
+        ico: '📊',
+        title: '实验报告分析',
+        desc: '根据已提交的组/个人报告，给出结构完整性、数据引用与评阅要点。',
+        hello: '已进入「实验报告分析」。可点下方快捷项，或直接描述你想分析的学生/小组。',
+        chips: ['分析当前已提交报告概况', '指出常见写作问题', '给出评阅检查清单'],
+        reply: function (t) {
+          var submitted = 0, personal = 0;
+          Object.keys(state.students).forEach(function (sid) {
+            var s = state.students[sid];
+            if (!s || s.status === 'none') return;
+            var gr = s.taskId ? state.groupReports[groupReportKey(s.taskId, s.groupId)] : null;
+            if (gr && gr.submitted) submitted++;
+            if (s.personalSubmitted) personal++;
+          });
+          if (/概况|当前|提交/.test(t)) {
+            return '【报告分析】\n· 组报告已提交：约 ' + submitted + ' 条\n· 个人报告已提交：' + personal + ' 份\n建议优先抽查：数据与曲线是否对应、断口结论是否与照片一致、个人报告是否出现“复制组报告”痕迹。';
+          }
+          if (/问题|常见/.test(t)) {
+            return '常见问题：①只写步骤无数据分析；②σb 计算未写试样尺寸；③断口类型与曲线韧性特征矛盾；④误差分析空泛。评阅时可对照组现场数据快速核验。';
+          }
+          return '评阅检查清单：目的是否明确 → 关键数据是否齐全 → 曲线/断口是否引用 → 误差是否具体 → 结论是否呼应数据。';
+        }
+      },
+      {
+        id: 't-plag',
+        ico: '🔎',
+        title: '报告查重',
+        desc: '对比同组/同班文本相似度，提示疑似雷同段落。',
+        hello: '已进入「报告查重」。可点下方快捷项查看相似度提示。',
+        chips: ['查同组个人报告相似度', '说明查重判定规则', '如何处理高度雷同'],
+        reply: function (t) {
+          if (/同组|相似/.test(t)) {
+            return '【查重】抽检同组个人报告：步骤描述相似度约 62%，数据分析约 28%。若步骤大段雷同、分析也高度一致，建议要求重写“数据分析与误差”一节并当面抽问。';
+          }
+          if (/规则/.test(t)) {
+            return '查重规则：同组共享组报告不算抄袭；个人报告的步骤/分析/反思按段落比对。阈值模板句可忽略，连续 40 字以上重合将标红。';
+          }
+          return '处理建议：相似度>50% 先提醒修改；>70% 且核心分析雷同可退回重交。查重结果仅作辅助，最终由教师认定。';
+        }
+      },
+      {
+        id: 't-score',
+        ico: '✏️',
+        title: '评分建议',
+        desc: '结合提交状态与报告完整度，给出参考分与评语草稿。',
+        hello: '已进入「评分建议」。告诉我学生姓名/学号，或点快捷项生成参考评语。',
+        chips: ['生成一条参考评语', '组报告建议给多少分', '个人报告扣分点'],
+        reply: function (t) {
+          if (/评语/.test(t)) {
+            return '参考评语：组报告数据完整、断口结论清楚；个人报告分析尚可，误差来源可再具体。建议组报告 86、个人报告 80，请按实际调整。';
+          }
+          if (/组报告|多少分/.test(t)) {
+            return '组报告若现场数据齐全、全员确认且结论自洽，建议 82–90；缺断口图或关键量未写，建议 70–80。';
+          }
+          return '个人报告常见扣分：无定量比较（-5）、误差空泛（-5）、未结合本组数据（-8）。可在「报告评阅打分」中落分。';
+        }
+      },
+      {
+        id: 't-chat',
+        ico: '💬',
+        title: '自由问答',
+        desc: '实验教学、平台使用与布置任务相关问题。',
+        hello: '可以问我：如何按组下发、学生流程、智能化能力边界等。',
+        chips: ['教师端怎么用', '学生交报告后我做什么', '物小智能做什么'],
+        reply: function (t) {
+          if (/教师|怎么用/.test(t)) return '教师端只需两步：①按组下发实验任务；②学生提交后在「报告评阅打分」给分。课堂管理仍在线下进行。';
+          if (/交报告|做什么/.test(t)) return '学生提交后：打开评阅 → 看组报告与个人报告 → 打分写评语。也可先用「报告分析/查重」辅助。';
+          return '物小智在教师端提供报告分析、查重与评分建议；在学生端提供实验指导与报告生成辅助。';
+        }
+      }
+    ],
+    student: [
+      {
+        id: 's-guide',
+        ico: '🧭',
+        title: '实验指导',
+        desc: '安全事项、操作步骤、曲线与断口判读实时答疑。',
+        hello: '已进入「实验指导」。现场操作时可随时问我安全、步骤或读数问题。',
+        chips: ['拉伸实验要注意什么安全事项？', '屈服强度怎么从曲线上看？', '断口塑性/脆性怎么区分？'],
+        reply: function (t) {
+          if (/安全|急停|门/.test(t)) return '启动前确认安全门关闭、试样夹持可靠、急停位置明确；过程中手勿靠近加载区；异常立刻急停并报告教师。';
+          if (/屈服|强度|曲线/.test(t)) return '低碳钢常见屈服平台或上/下屈服点，报告可取下屈服应力；无明显平台时可用 Rp0.2 思路说明。';
+          if (/断口|塑性|脆性/.test(t)) return '塑性断口常见杯锥状、纤维区与剪切唇；脆性断口较平整。AI 识别仅供参考，请结合照片与曲线判断。';
+          if (/步骤|怎么做|流程/.test(t)) return '现场流程：联锁确认 → 启动采集 → 标记断裂 → 断口拍摄/识别 → 结束并生成组报告 → 课后写个人报告。';
+          return '可以继续问安全、曲线读数、断口判别或平台操作。建议结合你正在做的步骤提问。';
+        }
+      },
+      {
+        id: 's-gen',
+        ico: '📝',
+        title: '生成实验报告',
+        desc: '按当前实验内容与现场数据，生成个人报告草稿（可再编辑）。',
+        hello: '已进入「生成实验报告」。可一键根据本组数据生成个人报告三节草稿，并写入报告页。',
+        chips: ['根据实验数据生成报告草稿', '只要数据分析段落', '写入我的个人报告编辑框'],
+        reply: function (t, skill) {
+          var s = getStu();
+          if (!s || s.status === 'none' || s.status === 'assigned') {
+            return '你还没有完成现场实验。请先做完实验并生成组数据，我才能按真实结果起草个人报告。';
+          }
+          var gr = s.taskId ? state.groupReports[groupReportKey(s.taskId, s.groupId)] : null;
+          var d = (gr && gr.data) || { fMax: s.maxF, dMax: s.maxD, fractureType: s.fractureType };
+          var fmax = Number(d.fMax || 0).toFixed(2);
+          var dmax = Number(d.dMax || 0).toFixed(2);
+          var A0 = 78.54, L0 = 50;
+          var sigb = (Number(d.fMax || 0) * 1000 / A0).toFixed(1);
+          var ft = d.fractureType === 'ductile' ? '塑性断裂' : (d.fractureType === 'brittle' ? '脆性断裂' : '待判定');
+          var steps = '本组完成' + (s.expName || '材料拉伸') + '实验：确认安全门联锁后启动试验机，实时采集力—位移曲线，试样断裂后拍摄断口并由 AI 辅助识别，组员现场确认组报告。';
+          var analysis = '测得 Fmax≈' + fmax + ' kN，ΔLmax≈' + dmax + ' mm；按 L0=50 mm、A0≈78.54 mm²估算 σb≈' + sigb + ' MPa。断口类型倾向' + ft + '。误差可能来自夹持对中、标距测量与采样波动，需与理论/手册值对照讨论。';
+          var reflection = '通过实验理解了弹性、屈服与强化阶段特征，认识到组数据共享与个人独立分析的分工。后续将加强误差定量分析，并更仔细核对断口形貌与曲线一致性。';
+          if (/只要|数据分析/.test(t) && !/写入|草稿|生成报告/.test(t)) {
+            return analysis + '\n\n（可复制到个人报告第二节；需要全文草稿请点「根据实验数据生成报告草稿」。）';
+          }
+          if (/写入/.test(t)) {
+            s.personal = s.personal || {};
+            s.personal.steps = steps;
+            s.personal.analysis = analysis;
+            s.personal.reflection = reflection;
+            saveState();
+            if (state.page === 's-report') showPage('s-report');
+            return '已将三节草稿写入「实验报告」个人报告编辑框，请打开该页检查并改成你自己的表述后再提交。';
+          }
+          // 默认生成全文，并提示可写入
+          return '【个人报告草稿】\n\n一、步骤\n' + steps + '\n\n二、数据分析与误差\n' + analysis + '\n\n三、总结反思\n' + reflection + '\n\n点「写入我的个人报告编辑框」可直接填入页面（请务必个性化修改）。';
+        }
+      },
+      {
+        id: 's-data',
+        ico: '📈',
+        title: '数据解读',
+        desc: '解读 F–ΔL 曲线、强度估算与断口结论是否自洽。',
+        hello: '已进入「数据解读」。可结合你本组的 Fmax、曲线与断口结果提问。',
+        chips: ['解读我组当前关键结果', 'σb 怎么估算', '曲线和断口是否一致'],
+        reply: function (t) {
+          var s = getStu();
+          var gr = s && s.taskId ? state.groupReports[groupReportKey(s.taskId, s.groupId)] : null;
+          var d = gr && gr.data;
+          if (/关键|当前|我组/.test(t)) {
+            if (!d) return '暂无组现场数据。请先完成「现场做实验」并结束实验。';
+            var ft = d.fractureType === 'ductile' ? '塑性' : (d.fractureType === 'brittle' ? '脆性' : '未知');
+            return '本组 Fmax=' + Number(d.fMax || 0).toFixed(2) + ' kN，ΔLmax=' + Number(d.dMax || 0).toFixed(2) + ' mm，断口倾向' + ft + '。建议在报告中写清试样尺寸，并计算 σb 与延伸相关量。';
+          }
+          if (/σb|强度|估算/.test(t)) return '估算：σb≈Fmax(N)/A0(mm²)。圆截面 A0=πd²/4；默认 d=10 mm → A0≈78.54 mm²。注意单位：kN 需×1000 化为 N。';
+          return '若曲线有明显屈服平台且断口呈杯锥状，通常与塑性断裂一致；若突然脆性跌落且断口平齐，则更支持脆性结论。不一致时优先复核照片与标记断裂时机。';
+        }
+      },
+      {
+        id: 's-chat',
+        ico: '💬',
+        title: '自由问答',
+        desc: '组报告与个人报告区别、平台使用等问题。',
+        hello: '可以问组/个人报告区别、课后如何提交、物小智能帮什么等。',
+        chips: ['组报告和个人报告有什么区别？', '个人报告可以回家写吗？', '物小智能帮我做什么'],
+        reply: function (t) {
+          if (/区别|组报告|个人报告/.test(t)) return '组报告由平台根据现场数据自动生成，同组共享并现场确认提交；个人报告课后独立撰写，可附件上传，教师分别打分。';
+          if (/回家|课后/.test(t)) return '可以。现场完成组报告确认即可离开；个人报告支持保存草稿，回家填写或上传附件后再提交。';
+          return '我能做：实验指导、按数据生成报告草稿、解读曲线与断口。请勿直接粘贴草稿代替独立思考。';
+        }
+      }
+    ]
+  };
+
+  function wxzSkillList() {
+    return WXZ_SKILLS[state.role === 'teacher' ? 'teacher' : 'student'] || [];
+  }
+
+  function findWxzSkill(id) {
+    var list = wxzSkillList();
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+
+  function wxzReply(text) {
+    var skill = findWxzSkill(state.wxzSkill);
+    var t = String(text || '').trim();
+    if (!skill) return '请先从功能入口选择一项能力。';
+    if (!t) return '请输入问题，或点上方快捷提示。';
+    try { return skill.reply(t, skill); }
+    catch (e) { return '回复出错，请重试。'; }
+  }
+
+  function openWxzSkill(id, presetText) {
+    var skill = findWxzSkill(id);
+    if (!skill) return;
+    state.wxzSkill = id;
+    state.wxzView = 'chat';
+    state.wxzOpen = true;
+    state.wxzMsgs = [{ role: 'bot', text: skill.hello }];
+    saveState();
+    renderWxz();
+    if (presetText) wxzSend(presetText);
+  }
+
+  function wxzGoHome() {
+    state.wxzView = 'home';
+    state.wxzSkill = null;
+    state.wxzMsgs = [];
+    saveState();
+    renderWxz();
+  }
+
+  function renderWxz() {
+    var fab = document.getElementById('wxz-fab');
+    var panel = document.getElementById('wxz-panel');
+    var home = document.getElementById('wxz-home');
+    var chat = document.getElementById('wxz-chat');
+    var back = document.getElementById('wxz-back');
+    if (!state.wxzView) state.wxzView = 'home';
+
+    fab.classList.toggle('is-open', !!state.wxzOpen);
+    panel.classList.toggle('hidden', !state.wxzOpen);
+    if (!state.wxzOpen) return;
+
+    var isHome = state.wxzView !== 'chat';
+    home.classList.toggle('hidden', !isHome);
+    chat.classList.toggle('hidden', isHome);
+    back.classList.toggle('hidden', isHome);
+
+    var roleLabel = state.role === 'teacher' ? '教师端' : '学生端';
+    if (isHome) {
+      document.getElementById('wxz-title').textContent = '物小智';
+      document.getElementById('wxz-subtitle').textContent = roleLabel + ' · 选择一项能力开始';
+      document.getElementById('wxz-avatar').src = 'assets/wxz-fab-hover.png';
+      var who = state.role === 'teacher'
+        ? ('你好，' + (state.teacherName || '老师') + '。')
+        : ('你好，' + ((getStu() && getStu().name) || '同学') + '。');
+      home.innerHTML = ''
+        + '<p class="wxz-home-hi">' + esc(who) + '我是物小智。</p>'
+        + wxzSkillList().map(function (sk) {
+            return '<button type="button" class="wxz-skill" data-skill="' + esc(sk.id) + '">'
+              + '<div class="wxz-skill-ico">' + sk.ico + '</div>'
+              + '<div><strong>' + esc(sk.title) + '</strong><span>' + esc(sk.desc) + '</span></div>'
+              + '</button>';
+          }).join('');
+    } else {
+      var skill = findWxzSkill(state.wxzSkill);
+      document.getElementById('wxz-title').textContent = skill ? skill.title : '物小智';
+      document.getElementById('wxz-subtitle').textContent = '物小智 · ' + roleLabel;
+      document.getElementById('wxz-avatar').src = 'assets/wxz-fab-idle.png';
+      var chips = document.getElementById('wxz-chips');
+      var msgs = document.getElementById('wxz-msgs');
+      chips.innerHTML = ((skill && skill.chips) || []).map(function (c, i) {
+        return '<button type="button" data-chip="' + i + '">' + esc(c) + '</button>';
+      }).join('');
+      if (!state.wxzMsgs.length && skill) {
+        state.wxzMsgs = [{ role: 'bot', text: skill.hello }];
+      }
+      msgs.innerHTML = state.wxzMsgs.map(function (m) {
+        return '<div class="wxz-msg ' + (m.role === 'me' ? 'me' : 'bot') + '">' + esc(m.text) + '</div>';
+      }).join('');
+      msgs.scrollTop = msgs.scrollHeight;
+      var ph = document.getElementById('wxz-input');
+      if (ph) ph.placeholder = skill && skill.id === 's-gen' ? '描述需求，或点快捷生成草稿…' : '输入你的问题…';
+    }
+  }
+
+  function wxzSend(text) {
+    var t = String(text || '').trim();
+    if (!t) return;
+    if (state.wxzView !== 'chat' || !state.wxzSkill) {
+      state.wxzOpen = true;
+      state.wxzView = 'home';
+      renderWxz();
+      return;
+    }
+    state.wxzMsgs.push({ role: 'me', text: t });
+    state.wxzMsgs.push({ role: 'bot', text: wxzReply(t) });
+    saveState();
+    renderWxz();
+    document.getElementById('wxz-input').value = '';
+  }
+
+  function syncWxzSession() {
+    try {
+      if (state.role === 'student' && state.studentId) {
+        var s = getStu();
+        localStorage.setItem(WXZ_SESSION_KEY, JSON.stringify({
+          sid: state.studentId,
+          name: s ? s.name : '',
+          expName: s ? s.expName : '',
+          from: 'lab-digital-platform',
+          ts: Date.now()
+        }));
+      }
+    } catch (e) {}
+  }
+
+  /* ========== Chart ========== */
+  function drawChart(canvas, points, opts) {
+    if (!canvas) return;
+    opts = opts || {};
+    var parent = canvas.parentElement;
+    if (parent && parent.classList.contains('rm-chart-wrap')) {
+      var cw = parent.clientWidth || 700, ch = parent.clientHeight || 360;
+      var dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(cw * dpr);
+      canvas.height = Math.floor(ch * dpr);
+      canvas.style.width = cw + 'px';
+      canvas.style.height = ch + 'px';
+    }
+    var ctx = canvas.getContext('2d');
+    var W = canvas.width, H = canvas.height;
+    if (parent && parent.classList.contains('rm-chart-wrap')) {
+      var dpr2 = window.devicePixelRatio || 1;
+      ctx.setTransform(dpr2, 0, 0, dpr2, 0, 0);
+      W = parent.clientWidth || 700;
+      H = parent.clientHeight || 360;
+    } else {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, W, H);
+    var pad = { l: 48, r: 16, t: 28, b: 36 };
+    var pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+    ctx.strokeStyle = '#DDE4E9';
+    ctx.strokeRect(pad.l, pad.t, pw, ph);
+    var pts = points || [];
+    if (pts.length < 2) {
+      ctx.fillStyle = '#8A9AA6';
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('等待采集数据…', W / 2, H / 2);
+      return;
+    }
+    var maxD = 0, maxF = 0;
+    pts.forEach(function (p) { if (p.d > maxD) maxD = p.d; if (p.f > maxF) maxF = p.f; });
+    maxD = Math.max(maxD * 1.05, 1); maxF = Math.max(maxF * 1.08, 1);
+    function x(d) { return pad.l + (d / maxD) * pw; }
+    function y(f) { return pad.t + ph - (f / maxF) * ph; }
+    var grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + ph);
+    grad.addColorStop(0, 'rgba(14,124,139,0.22)');
+    grad.addColorStop(1, 'rgba(14,124,139,0.02)');
+    ctx.beginPath();
+    pts.forEach(function (p, i) {
+      var X = x(p.d), Y = y(p.f);
+      if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+    });
+    ctx.lineTo(x(pts[pts.length - 1].d), pad.t + ph);
+    ctx.lineTo(x(pts[0].d), pad.t + ph);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = '#0E7C8B';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    pts.forEach(function (p, i) {
+      var X = x(p.d), Y = y(p.f);
+      if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+    });
+    ctx.stroke();
+    if (opts.markRupture) {
+      var last = pts[pts.length - 1];
+      var lx = x(last.d), ly = y(last.f);
+      ctx.fillStyle = '#D4453A';
+      ctx.beginPath();
+      ctx.arc(lx, ly, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#D4453A';
+      ctx.font = '600 12px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('断裂', Math.min(lx + 8, W - 48), Math.max(ly - 8, pad.t + 12));
+    }
+    ctx.fillStyle = '#5B6B78';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('位移 ΔL (mm)', pad.l + pw / 2, H - 10);
+  }
+
+  function calcWork(points) {
+    var work = 0;
+    for (var i = 1; i < points.length; i++) {
+      var dd = points[i].d - points[i - 1].d;
+      if (dd > 0) work += 0.5 * (points[i].f + points[i - 1].f) * dd;
+    }
+    return work;
+  }
+
+  function buildGroupHtml(s, data) {
+    var fmax = Number(data.fMax || 0);
+    var dmax = Number(data.dMax || 0);
+    var A0 = 78.54, L0 = 50;
+    var sigb = fmax * 1000 / A0;
+    var eps = dmax / L0 * 100;
+    var work = calcWork(data.points || []);
+    var ft = data.fractureType === 'ductile' ? '塑性断裂' : (data.fractureType === 'brittle' ? '脆性断裂' : '—');
+    return ''
+      + '<h4>一、实验目的</h4><p>测定材料在拉伸载荷下的力学性能，获取力—位移曲线，观察断口形貌。</p>'
+      + '<h4>二、实验设备与试样</h4><p>电子万能试验机；圆截面试样 L<sub>0</sub>=50 mm，d=10 mm，A<sub>0</sub>≈78.54 mm²。</p>'
+      + '<h4>三、实验过程摘要</h4><p>小组现场完成联锁确认、启动、采集、断口拍摄与 AI 识别确认。数据来源学号：' + esc(data.sourceSid || '—') + '。</p>'
+      + '<h4>四、主要结果</h4>'
+      + '<p>F<sub>max</sub> = <strong>' + fmax.toFixed(2) + '</strong> kN；ΔL<sub>max</sub> = <strong>' + dmax.toFixed(2) + '</strong> mm；'
+      + 'σ<sub>b</sub> ≈ <strong>' + sigb.toFixed(1) + '</strong> MPa；ε<sub>max</sub> ≈ <strong>' + eps.toFixed(2) + '</strong> %；'
+      + '吸收功 W ≈ <strong>' + work.toFixed(1) + '</strong> J。</p>'
+      + '<h4>五、断口类型</h4><p>AI 识别：<strong>' + esc(ft) + '</strong>（置信度 ' + (data.fractureConf || 0).toFixed(2) + '），供组报告引用，最终以教师评阅为准。</p>'
+      + '<h4>六、小组备注</h4><p>' + esc(data.note || '（无）') + '</p>'
+      + '<h4>七、现场确认</h4><p>组报告由平台根据现场数据自动生成；全体组员确认后方可提交。</p>';
+  }
+
+  /* ========== Pages ========== */
+  function pageTeacherAssign() {
+    var tasks = state.tasks.slice().reverse();
+    var groupChecks = DEMO_GROUPS.map(function (g) {
+      var names = g.members.map(function (m) { return m.name; }).join('、');
+      return '<label><input type="checkbox" class="g-pick" value="' + esc(g.id) + '" /> <strong>' + esc(g.name) + '</strong> <span class="sub">（' + esc(names) + '）</span></label>';
+    }).join('');
+    var expOpts = EXPS.map(function (e) {
+      return '<option value="' + e.id + '">' + esc(e.name) + '（' + e.hours + ' 学时）</option>';
+    }).join('');
+    var taskRows = tasks.length ? tasks.map(function (t) {
+      var gnames = (t.groupIds || []).map(function (id) {
+        var g = findGroup(id); return g ? g.name : id;
+      }).join('、');
+      return '<tr><td>' + esc(t.expName) + '</td><td>' + esc(gnames) + '</td><td>' + esc(t.timeText || '—') + '</td><td>' + esc(t.place || '—') + '</td><td class="sub">' + esc((t.createdAt || '').slice(0, 16).replace('T', ' ')) + '</td></tr>';
+    }).join('') : '<tr><td colspan="5" class="empty">暂无任务，请在上方按组下发</td></tr>';
+
+    return ''
+      + '<div class="page-head"><div><div class="page-kicker">教师</div><h2>下发实验任务</h2></div></div>'
+      + '<div class="panel-stack">'
+      + '<div class="card">'
+      +   '<h3 class="section-title">新建任务</h3>'
+      +   '<div class="grid-2">'
+      +     '<div><label class="field-label">实验项目</label><select id="as-exp" class="inp">' + expOpts + '</select></div>'
+      +     '<div><label class="field-label">实验时间</label><input id="as-time" class="inp" placeholder="如 第5周周三 14:00–16:00" /></div>'
+      +     '<div><label class="field-label">地点</label><input id="as-place" class="inp" placeholder="如 力学楼 B201" /></div>'
+      +     '<div><label class="field-label">备注</label><input id="as-note" class="inp" placeholder="可选" /></div>'
+      +   '</div>'
+      +   '<label class="field-label" style="margin-top:.9rem">选择小组</label>'
+      +   '<div class="check-list" id="as-groups">' + groupChecks + '</div>'
+      +   '<div class="row" style="margin-top:.85rem"><button type="button" class="btn btn-primary" id="btn-dispatch">下发任务</button></div>'
+      + '</div>'
+      + '<div class="card">'
+      +   '<h3 class="section-title">已下发</h3>'
+      +   '<div style="overflow:auto"><table class="table"><thead><tr><th>实验</th><th>小组</th><th>时间</th><th>地点</th><th>下发于</th></tr></thead><tbody>' + taskRows + '</tbody></table></div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  function pageTeacherGrade() {
+    var rows = [];
+    DEMO_GROUPS.forEach(function (g) {
+      g.members.forEach(function (m) {
+        var s = state.students[m.sid];
+        if (!s || s.status === 'none') return;
+        var gr = s.taskId ? state.groupReports[groupReportKey(s.taskId, g.id)] : null;
+        var gScore = gr && gr.score != null ? gr.score : '—';
+        var pScore = s.personalScore != null ? s.personalScore : '—';
+        rows.push({
+          sid: m.sid, name: m.name, gname: g.name, exp: s.expName || '—',
+          st: s.status, gSub: !!(gr && gr.submitted), pSub: !!s.personalSubmitted,
+          gScore: gScore, pScore: pScore, taskId: s.taskId, groupId: g.id
+        });
+      });
+    });
+    var stats = {
+      total: rows.length,
+      gDone: rows.filter(function (r) { return r.gSub; }).length,
+      pDone: rows.filter(function (r) { return r.pSub; }).length
+    };
+    var body = rows.length ? rows.map(function (r) {
+      return '<tr>'
+        + '<td>' + esc(r.name) + '<div class="sub">' + esc(r.sid) + '</div></td>'
+        + '<td><span class="pill-group">' + esc(r.gname) + '</span></td>'
+        + '<td>' + esc(r.exp) + '</td>'
+        + '<td>' + statusTag(r.st) + '</td>'
+        + '<td>' + (r.gSub ? '<span class="tag ok">组已交</span>' : '<span class="tag muted">组未交</span>')
+        + ' ' + (r.pSub ? '<span class="tag ok">个人已交</span>' : '<span class="tag muted">个人未交</span>') + '</td>'
+        + '<td>' + esc(String(r.gScore)) + ' / ' + esc(String(r.pScore)) + '</td>'
+        + '<td><button type="button" class="btn btn-ghost btn-sm" data-grade="' + esc(r.sid) + '">评阅打分</button></td>'
+        + '</tr>';
+    }).join('') : '<tr><td colspan="7" class="empty">还没有已下发任务的学生</td></tr>';
+
+    return ''
+      + '<div class="page-head"><div><div class="page-kicker">教师</div><h2>报告评阅打分</h2></div></div>'
+      + '<div class="stat-row">'
+      +   '<div class="stat"><div class="n">' + stats.total + '</div><div class="l">已有任务人数</div></div>'
+      +   '<div class="stat"><div class="n">' + stats.gDone + '</div><div class="l">组报告已提交</div></div>'
+      +   '<div class="stat"><div class="n">' + stats.pDone + '</div><div class="l">个人报告已提交</div></div>'
+      + '</div>'
+      + '<div class="card"><div style="overflow:auto"><table class="table"><thead><tr>'
+      + '<th>学生</th><th>小组</th><th>实验</th><th>状态</th><th>提交</th><th>组分/个人分</th><th>操作</th>'
+      + '</tr></thead><tbody>' + body + '</tbody></table></div></div>';
+  }
+
+  function pageStudentHome() {
+    var s = getStu();
+    if (!s) return '<p>未找到学生</p>';
+    if (s.status === 'none') {
+      return ''
+        + '<div class="page-head"><div><div class="page-kicker">学生 · 步骤 1</div><h2>我的实验任务</h2></div></div>'
+        + '<div class="card empty">当前没有实验任务</div>';
+    }
+    var g = findGroup(s.groupId);
+    var mates = g ? g.members.map(function (m) { return m.name; }).join('、') : '—';
+    var canStart = s.status === 'assigned';
+    var tip = findExp(s.expId);
+    var cta = canStart
+      ? '<button type="button" class="btn btn-primary" id="btn-start-lab">开始现场实验</button>'
+      : (s.status === 'in_lab'
+          ? '<button type="button" class="btn btn-primary" id="btn-go-lab">继续实验</button>'
+          : '<button type="button" class="btn btn-primary" id="btn-go-report">查看报告</button>');
+    return ''
+      + '<div class="page-head"><div><div class="page-kicker">学生 · 步骤 1</div><h2>我的实验任务</h2></div></div>'
+      + '<div class="task-hero">'
+      +   '<div class="row" style="justify-content:space-between;align-items:flex-start">'
+      +     '<div class="exp-name">' + esc(s.expName) + '实验</div>'
+      +     statusTag(s.status)
+      +   '</div>'
+      +   '<div class="meta-grid">'
+      +     '<div><span class="field-label">小组</span><div><strong>' + esc(s.groupName) + '</strong> · ' + esc(mates) + '</div></div>'
+      +     '<div><span class="field-label">时间 / 地点</span><div>' + esc(s.timeText || '—') + ' · ' + esc(s.place || '—') + '</div></div>'
+      +     '<div style="grid-column:1/-1"><span class="field-label">备注</span><div>' + esc(s.note || '无') + '</div></div>'
+      +     '<div style="grid-column:1/-1"><span class="field-label">实验说明</span><div>' + esc(tip ? tip.tip : '') + '</div></div>'
+      +   '</div>'
+      +   '<div class="row">' + cta + '</div>'
+      + '</div>';
+  }
+
+  function pageStudentLab() {
+    var s = getStu();
+    if (!s) return '<p>未找到学生</p>';
+    var head = '<div class="page-head"><div><div class="page-kicker">学生 · 步骤 2</div><h2>现场做实验</h2>'
+      + (s.expName ? '<div class="page-meta">' + esc(s.expName) + '</div>' : '')
+      + '</div></div>';
+    if (s.status === 'none' || s.status === 'assigned') {
+      return head + '<div class="card empty">尚无进行中的实验</div>';
+    }
+    if (s.status === 'lab_done' || s.status === 'submitted') {
+      var gr = ensureGroupReport(s.taskId, s.groupId);
+      var d = gr.data || { fMax: s.maxF, dMax: s.maxD, points: (s.acq && s.acq.points) || [], fractureType: s.fractureType, fractureConf: s.fractureConf, fractureImg: s.fractureImg };
+      var work = calcWork(d.points || []);
+      var A0 = 78.54, L0 = 50;
+      var sigb = (d.fMax || 0) * 1000 / A0;
+      var eps = ((d.dMax || 0) / L0) * 100;
+      var ft = d.fractureType === 'ductile' ? '塑性断裂' : (d.fractureType === 'brittle' ? '脆性断裂' : '—');
+      return ''
+        + '<div class="page-head"><div><div class="page-kicker">学生 · 步骤 2</div><h2>现场做实验</h2><div class="page-meta">已结束 · ' + esc(s.expName || '') + '</div></div>'
+        + '<button type="button" class="btn btn-primary" id="btn-go-report">撰写/查看报告</button></div>'
+        + '<div class="panel-stack">'
+        +   '<div class="card"><h3 class="section-title">力—位移曲线</h3><div class="chart-wrap"><canvas id="chart-fd" width="640" height="260"></canvas></div></div>'
+        +   '<div class="card"><h3 class="section-title">关键结果</h3>'
+        +     '<div class="kpi-grid">'
+        +       '<div>F<sub>max</sub>：<strong>' + Number(d.fMax || 0).toFixed(2) + '</strong> kN</div>'
+        +       '<div>ΔL<sub>max</sub>：<strong>' + Number(d.dMax || 0).toFixed(2) + '</strong> mm</div>'
+        +       '<div>σ<sub>b</sub>：<strong>' + sigb.toFixed(1) + '</strong> MPa</div>'
+        +       '<div>ε<sub>max</sub>：<strong>' + eps.toFixed(2) + '</strong> %</div>'
+        +       '<div>W：<strong>' + work.toFixed(1) + '</strong> J</div>'
+        +       '<div>断口：<span class="tag ' + (d.fractureType === 'ductile' ? 'ok' : 'warn') + '">' + esc(ft) + '</span></div>'
+        +     '</div>'
+        +     (d.fractureImg ? '<img class="frac-preview" style="margin-top:.7rem" src="' + d.fractureImg + '" alt="断口" />' : '')
+        +   '</div>'
+        + '</div>';
+    }
+
+    var f = s.expFlow || 'wait_door';
+    var order = ['wait_door', 'acquiring', 'post_break', 'done_viz'];
+    var ci = order.indexOf(f);
+    if (ci < 0) ci = 0;
+    var stepCi = Math.min(ci, 2);
+
+    var labView;
+    if (ci === 0) labView = 'door';
+    else if (ci === 1) labView = 'acq';
+    else {
+      if (state.labView === 'acq' || state.labView === 'frac') labView = state.labView;
+      else labView = 'frac';
+      state.labView = labView;
+    }
+    var viewStep = labView === 'door' ? 0 : (labView === 'acq' ? 1 : 2);
+
+    function stp(i, title, viewKey) {
+      var reachable = i <= stepCi;
+      var viewing = viewStep === i;
+      var st = viewing ? 'on' : (stepCi > i ? 'done' : '');
+      if (!reachable) {
+        return '<div class="ls-step" aria-disabled="true"><div class="ls-num">' + (i + 1) + '</div>' + esc(title) + '</div>';
+      }
+      return '<button type="button" class="ls-step ' + st + '" data-lab-view="' + viewKey + '">'
+        + '<div class="ls-num">' + (stepCi > i && !viewing ? '✓' : (i + 1)) + '</div>' + esc(title) + '</button>';
+    }
+    function ln(i) {
+      var st = stepCi > i ? 'done' : (stepCi === i ? 'on' : '');
+      return '<div class="ls-line ' + st + '"></div>';
+    }
+    var html = head
+      + '<div class="lab-stepper">'
+      +   stp(0, '联锁启动', 'door') + ln(0)
+      +   stp(1, '实时采集', 'acq') + ln(1)
+      +   stp(2, '断口确认', 'frac')
+      + '</div>'
+      + '<div class="panel-stack">';
+
+    if (labView === 'door') {
+      if (ci > 0) {
+        html += '<div class="done-bar">✓ 安全联锁与启动已完成</div>'
+          + '<p class="sub">此步骤已完成。请点击上方「实时采集」或「断口确认」继续。</p>';
+      } else {
+        html += '<div class="card"><h3 class="section-title">安全联锁与启动</h3>'
+          + '<label class="row" style="cursor:pointer"><input type="checkbox" id="lab-door"' + (s.doorClosed ? ' checked' : '') + ' /> <span>安全门已关闭（门磁联锁）</span></label>'
+          + '<div class="row" style="margin-top:.75rem">'
+          +   '<button type="button" class="btn btn-primary" id="btn-start-machine">启动拉力机</button>'
+          +   '<span class="tag warn">等待联锁</span>'
+          + '</div></div>';
+      }
+    }
+
+    if (labView === 'acq' && ci >= 1) {
+      if (ci > 0) html += '<div class="done-bar">✓ 安全联锁与启动已完成</div>';
+      var done = ci > 1;
+      var A0 = 78.54, L0 = 50, rate = 2.0;
+      var pts0 = (s.acq && s.acq.points) || [];
+      var last0 = pts0.length ? pts0[pts0.length - 1] : { f: 0, d: 0 };
+      var maxF = Number(s.maxF || last0.f || 0);
+      var maxD = Number(s.maxD || last0.d || 0);
+      var d0 = last0.d;
+      var stage0 = done ? 4 : (d0 < 1.2 ? 0 : (d0 < 2.4 ? 1 : (d0 < 6 ? 2 : 3)));
+      var paused = !done && !!s.acqPaused;
+      var stress0 = ((done ? maxF : last0.f) * 1000) / A0;
+      var strain0 = ((done ? maxD : last0.d) / L0) * 100;
+      var elapsed0 = (s.acq && s.acq.t0) ? (Date.now() - s.acq.t0) : (pts0.length * 120);
+      if (done && pts0.length && pts0[0].t && pts0[pts0.length - 1].t) {
+        elapsed0 = pts0[pts0.length - 1].t - pts0[0].t;
+      }
+      function mmss(ms) {
+        var sec = Math.max(0, Math.floor(ms / 1000));
+        var m = Math.floor(sec / 60), ss = sec % 60;
+        return (m < 10 ? '0' : '') + m + ':' + (ss < 10 ? '0' : '') + ss;
+      }
+      function stageHtml(idx) {
+        var names = [
+          ['弹性段', 'σ≤305MPa'], ['屈服', 'σ≈305MPa'], ['强化', 'σ↑'], ['颈缩', 'σ↓'], ['断裂', '—']
+        ];
+        var h = '<div class="rm-timeline" id="rm-timeline">';
+        names.forEach(function (st, i) {
+          var stt = idx > i ? 'done' : (idx === i ? (i === 4 ? 'break' : 'active') : 'pending');
+          var left = i === 0 ? '<div class="rm-stage-line" style="visibility:hidden"></div>'
+            : '<div class="rm-stage-line' + (idx >= i ? ' on' : '') + '"></div>';
+          var right = i === 4 ? '<div class="rm-stage-line" style="visibility:hidden"></div>'
+            : '<div class="rm-stage-line' + (idx > i ? ' on' : '') + '"></div>';
+          h += '<div class="rm-stage" data-st="' + stt + '"><div class="rm-stage-top">' + left
+            + '<div class="rm-stage-dot"></div>' + right + '</div>'
+            + '<div class="rm-stage-name">' + st[0] + '</div>'
+            + '<div class="rm-stage-meta">' + st[1] + '</div></div>';
+        });
+        return h + '</div>';
+      }
+
+      var statusClass = done ? 'is-break' : (paused ? 'is-paused' : 'is-live');
+      var statusColor = done ? 'var(--danger)' : (paused ? 'var(--warn)' : 'var(--info)');
+      var statusTitle = done ? '试样已断裂' : (paused ? '采集已暂停' : '拉力机采集中');
+      var statusDesc = done
+        ? ('数据采集已完成 · Fmax ' + maxF.toFixed(2) + ' kN · 曲线已固化')
+        : '模拟数据流 · 后续可接真实设备';
+      var work0 = calcWork(pts0);
+      var actions = done
+        ? '<button type="button" class="btn btn-primary btn-sm" data-lab-view="frac">前往断口确认 →</button>'
+        : ('<div class="row" style="gap:.4rem">'
+          + (!paused ? '<button type="button" class="btn btn-ghost btn-sm" id="btn-acq-stop">暂停采集</button>'
+            : '<button type="button" class="btn btn-primary btn-sm" id="btn-acq-resume">继续采集</button>')
+          + '<button type="button" class="btn btn-primary btn-sm" id="btn-rupture">标记样件已断裂</button></div>');
+
+      html += '<div class="card" style="padding:1.15rem 1.2rem" data-rm-mode="' + (done ? 'done' : 'live') + '">'
+        + '<div class="row" style="justify-content:space-between;margin-bottom:.85rem;flex-wrap:wrap;gap:.5rem">'
+        +   '<h3 class="section-title" style="margin:0">实时实验监测</h3>'
+        +   '<span class="tag">' + esc(s.expName || '材料拉伸') + (s.groupName ? ' · ' + esc(s.groupName) : '') + '</span></div>'
+        + '<div class="rm-alert ' + statusClass + '" id="rm-status-bar">'
+        +   '<div style="flex:1;padding-left:.25rem"><strong style="color:' + statusColor + '">' + statusTitle + '</strong>'
+        +     '<span class="sub" style="margin-left:.5rem">' + statusDesc + '</span></div>'
+        +   actions + '</div>'
+        + '<div class="rm-main">'
+        +   '<div class="card rm-panel-left" style="margin:0">'
+        +     '<div class="row" style="justify-content:space-between;margin-bottom:1rem">'
+        +       '<div style="font-weight:600">' + (done ? '关键结果' : '实时数据') + '</div>'
+        +       '<span style="font-size:.72rem;font-weight:600;color:var(--ok)">' + (done ? '已完成' : (paused ? '已暂停' : '采集中')) + '</span></div>'
+        +     '<div class="rm-data-stack">'
+        +       '<div class="rm-data-block"><div class="rm-data-label">' + (done ? '峰值力' : '当前力') + '</div><div class="rm-data-value"><span class="rm-data-num" id="rd-f">' + (done ? maxF : Number(last0.f)).toFixed(2) + '</span><span class="rm-data-unit">kN</span></div></div>'
+        +       '<div class="rm-data-divider"></div>'
+        +       '<div class="rm-data-block"><div class="rm-data-label">' + (done ? '最大位移' : '位 移') + '</div><div class="rm-data-value"><span class="rm-data-num" id="rd-d">' + (done ? maxD : Number(last0.d)).toFixed(2) + '</span><span class="rm-data-unit">mm</span></div></div>'
+        +       '<div class="rm-data-divider"></div>'
+        +       '<div class="rm-data-block"><div class="rm-data-label">应 力</div><div class="rm-data-value"><span class="rm-data-num" id="rd-stress">' + stress0.toFixed(1) + '</span><span class="rm-data-unit">MPa</span></div></div>'
+        +       '<div class="rm-data-divider"></div>'
+        +       '<div class="rm-data-block"><div class="rm-data-label">应 变</div><div class="rm-data-value"><span class="rm-data-num" id="rd-strain">' + strain0.toFixed(2) + '</span><span class="rm-data-unit">%</span></div></div>'
+        +       '<div class="rm-data-divider"></div>'
+        +       '<div class="rm-data-block"><div class="rm-data-label">加载时间</div><div class="rm-data-value"><span class="rm-data-num" id="rd-time">' + mmss(elapsed0) + '</span><span class="rm-data-unit">mm:ss</span></div></div>'
+        +       '<div class="rm-data-divider"></div>'
+        +       '<div class="rm-data-block"><div class="rm-data-label">加载速率</div><div class="rm-data-value"><span class="rm-data-num">' + rate.toFixed(1) + '</span><span class="rm-data-unit">mm/min</span></div></div>'
+        +     '</div>'
+        +     '<div style="margin-top:1rem;padding-top:.85rem;border-top:1px solid var(--border);font-size:.72rem;color:var(--info);font-weight:600">'
+        +       (done ? '曲线已固化 · 点击上方步骤可切换到断口确认' : '采样 ~8 Hz（模拟） · 数据已缓存') + '</div>'
+        +   '</div>'
+        +   '<div class="card rm-panel-right" style="margin:0">'
+        +     '<div class="row" style="justify-content:space-between;margin-bottom:.9rem"><div style="font-weight:600">力-位移曲线</div></div>'
+        +     '<div class="rm-chart-wrap"><canvas id="chart-fd"></canvas></div>'
+        +     '<div class="rm-chart-foot">'
+        +       '<div class="row" style="gap:1rem">'
+        +         '<span>峰值力 <strong id="lm-maxf">' + maxF.toFixed(2) + ' kN</strong></span>'
+        +         '<span>抗拉强度 <strong id="lm-sigb">' + ((maxF * 1000) / A0).toFixed(0) + ' MPa</strong></span>'
+        +         '<span>总位移 <strong id="lm-maxd">' + maxD.toFixed(2) + ' mm</strong></span>'
+        +         '<span>功 <strong id="lm-work">' + work0.toFixed(1) + ' J</strong></span>'
+        +       '</div><span>' + (done ? '实验已完成 · 曲线已固化' : (paused ? '已暂停' : '实时刷新中')) + '</span></div>'
+        +   '</div></div>'
+        + '<div class="card" style="margin:0">'
+        +   '<div class="row" style="justify-content:space-between;margin-bottom:1.1rem">'
+        +     '<div style="font-weight:600">实验阶段进度</div>'
+        +     '<span class="sub">' + (done ? '5 阶段 · 4 已完成 · 已断裂' : ('5 阶段 · 当前：' + ['弹性段', '屈服', '强化', '颈缩', '断裂'][stage0])) + '</span></div>'
+        +   stageHtml(stage0) + '</div></div>';
+    }
+
+    if (labView === 'frac' && ci >= 2) {
+      if (ci > 0) html += '<div class="done-bar">✓ 安全联锁与启动已完成</div>';
+      var isDuctile = s.fractureType === 'ductile';
+      var isBrittle = s.fractureType === 'brittle';
+      var ft2 = isDuctile ? '塑性断裂' : (isBrittle ? '脆性断裂' : '—');
+      var confPct = Math.round(Number(s.fractureConf || 0) * 1000) / 10;
+      var hasResult = f === 'done_viz' && !!s.fractureType;
+      var ductMatch = hasResult ? (isDuctile ? confPct : Math.max(1, Math.round(100 - confPct))) : 0;
+      var britMatch = hasResult ? (isBrittle ? confPct : Math.max(1, Math.round(100 - confPct))) : 0;
+
+      html += '<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:.85rem;flex-wrap:wrap;gap:.5rem">'
+        + '<h3 class="section-title" style="margin:0">断口采集与分析</h3>'
+        + '<span class="tag">' + esc(s.expName || '材料拉伸') + (s.groupName ? ' · ' + esc(s.groupName) : '') + '</span>'
+        + '</div>';
+
+      if (s.fractureImg) {
+        html += '<div class="fa-status-bar">'
+          + '<div style="flex:1;min-width:0;padding-left:.25rem">'
+          +   '<strong style="color:var(--info);font-size:.9rem">断口图像已采集</strong>'
+          +   '<span class="sub" style="margin-left:.5rem">可重新拍摄或上传</span>'
+          + '</div>'
+          + (f === 'post_break' || f === 'done_viz'
+            ? '<button type="button" class="btn btn-ghost btn-sm" id="btn-cap-ok">重新拍摄</button>'
+              + '<label class="btn btn-ghost btn-sm" style="cursor:pointer">上传图片<input type="file" id="frac-file" accept="image/*" hidden /></label>'
+            : '')
+          + '</div>';
+      } else {
+        html += '<div class="row" style="margin-bottom:.75rem">'
+          + (f === 'post_break' ? '<button type="button" class="btn btn-primary btn-sm" id="btn-cap-ok">拍摄断口</button> ' : '')
+          + '<label class="btn btn-ghost btn-sm" style="cursor:pointer">上传断口图<input type="file" id="frac-file" accept="image/*" hidden ' + (f !== 'post_break' ? 'disabled' : '') + ' /></label>'
+          + '</div>';
+      }
+
+      if (!s.fractureImg) {
+        html += '<div class="empty-soft">请拍摄或上传断口图像</div>'
+          + '<p class="sub" style="margin-top:.65rem">需要对照曲线时，点击上方「实时采集」步骤切换查看</p>';
+      } else {
+        html += '<div class="fa-main">'
+          + '<div class="fa-panel-left">'
+          +   '<div style="font-weight:600;font-size:.95rem;margin-bottom:.75rem">断口宏观图像</div>'
+          +   '<div class="fa-img-stage">'
+          +     '<img src="' + s.fractureImg + '" alt="断口" />'
+          +     (isDuctile
+            ? '<div class="fa-feature-box" style="left:22%;top:20%;width:54%;height:54%;border-color:var(--primary-400)"><span class="fa-feature-tag" style="background:var(--primary-600)">放射区</span></div>'
+              + '<div class="fa-feature-box" style="left:34%;top:30%;width:30%;height:30%"><span class="fa-feature-tag">纤维区</span></div>'
+            : '')
+          +   '</div>'
+          + '</div>'
+          + '<div class="card fa-panel-right" style="margin:0">'
+          +   '<div class="row" style="justify-content:space-between;margin-bottom:1rem">'
+          +     '<div style="font-weight:600;color:var(--primary-700)">算法分析结论</div>'
+          +     (hasResult ? '<span class="tag ok">已分析</span>' : '<span class="tag warn">待确认</span>')
+          +   '</div>'
+          +   (hasResult
+            ? '<div class="fa-verdict">' + esc(ft2) + '</div>'
+              + '<div style="margin-bottom:1rem">'
+              +   '<div class="row" style="justify-content:space-between;margin-bottom:.35rem">'
+              +     '<span class="sub">置信度</span><strong style="color:var(--blue)">' + confPct.toFixed(1) + '%</strong>'
+              +   '</div>'
+              +   '<div class="fa-conf-track"><div class="fa-conf-fill" style="width:' + Math.min(100, confPct) + '%"></div></div>'
+              + '</div>'
+              + '<button type="button" class="btn btn-ghost btn-sm" id="btn-toggle-frac" style="margin-bottom:.85rem">切换脆/韧</button>'
+              + '<button type="button" class="btn btn-primary" id="lab-finish" style="width:100%">确认分析结论 → 生成组报告</button>'
+            : '<p class="sub">完成识别后可生成组报告</p>')
+          + '</div></div>';
+
+        if (hasResult) {
+          html += '<div class="card" style="margin:0">'
+            + '<div class="row" style="justify-content:space-between;margin-bottom:.9rem">'
+            +   '<div style="font-weight:600">断裂类型对照</div><span class="sub">塑 / 脆两类判定</span></div>'
+            + '<div class="fa-ref-grid">'
+            +   '<div class="fa-ref-card"' + (isDuctile ? ' data-selected="true"' : '') + '>'
+            +     '<div class="fa-ref-thumb">' + (isDuctile ? '<img src="' + s.fractureImg + '" alt="" />' : '<div class="fa-ref-placeholder">塑性</div>')
+            +     '<span class="fa-ref-match">匹配 ' + ductMatch + '%</span></div>'
+            +     '<div class="fa-ref-body"><div style="font-size:.86rem;font-weight:600">塑性断裂</div>'
+            +     '<div class="sub" style="font-size:.72rem;margin-top:.2rem">纤维区+放射区+剪切唇</div></div></div>'
+            +   '<div class="fa-ref-card"' + (isBrittle ? ' data-selected="true"' : '') + '>'
+            +     '<div class="fa-ref-thumb">' + (isBrittle ? '<img src="' + s.fractureImg + '" alt="" />' : '<div class="fa-ref-placeholder">脆性</div>')
+            +     '<span class="fa-ref-match">匹配 ' + britMatch + '%</span></div>'
+            +     '<div class="fa-ref-body"><div style="font-size:.86rem;font-weight:600">脆性断裂</div>'
+            +     '<div class="sub" style="font-size:.72rem;margin-top:.2rem">解理或沿晶，平整放射纹</div></div></div>'
+            + '</div></div>';
+        }
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  function pageStudentReport() {
+    var s = getStu();
+    if (!s) return '<p>未找到学生</p>';
+    var head = '<div class="page-head"><div><div class="page-kicker">学生 · 步骤 3</div><h2>实验报告</h2>'
+      + '<div class="page-meta">' + esc(s.name) + ' · ' + esc(s.groupName || '') + (s.expName ? ' · ' + esc(s.expName) : '') + '</div>'
+      + '</div></div>';
+    if (s.status === 'none' || s.status === 'assigned') {
+      return head + '<div class="card empty">尚无报告数据</div>';
+    }
+    if (s.status === 'in_lab') {
+      return head + '<div class="card empty">实验进行中</div>';
+    }
+    var gr = ensureGroupReport(s.taskId, s.groupId);
+    var g = findGroup(s.groupId);
+    var confirmList = (g ? g.members : []).map(function (m) {
+      var ok = gr.confirmedBy.indexOf(m.sid) >= 0;
+      return '<span class="tag ' + (ok ? 'ok' : 'muted') + '">' + esc(m.name) + (ok ? ' ✓' : ' …') + '</span>';
+    }).join(' ');
+
+    if (!state.reportTab) state.reportTab = gr.submitted ? 'personal' : 'group';
+    var tab = state.reportTab === 'personal' ? 'personal' : 'group';
+
+    var groupBlock = '<div id="panel-group" class="card' + (tab === 'group' ? '' : ' hidden') + '>'
+      + '<div class="row" style="justify-content:space-between;margin-bottom:.55rem">'
+      +   '<h3 class="section-title" style="margin:0">组报告 <span class="tag">同组共享</span></h3>'
+      +   (gr.submitted ? '<span class="tag ok">已提交</span>' : '<span class="tag warn">待确认提交</span>')
+      + '</div>'
+      + '<div class="report-body" id="group-html">' + (gr.html || '<p class="sub">暂无组数据</p>') + '</div>'
+      + '<p class="sub" style="margin:.65rem 0 .35rem">组员确认：' + confirmList + '</p>'
+      + (!gr.submitted
+          ? '<div class="row"><button type="button" class="btn btn-primary" id="btn-confirm-group"' + (s.groupConfirmed ? ' disabled' : '') + '>'
+            + (s.groupConfirmed ? '你已确认，等待同组同学' : '确认组报告无误') + '</button>'
+            + '<button type="button" class="btn btn-ghost" id="btn-submit-group">提交组报告（需全员确认）</button></div>'
+          : '<p class="sub">提交于 ' + esc(gr.submittedAt || '') + (gr.score != null ? ' · 教师评分 <strong>' + gr.score + '</strong>' : '') + '</p>')
+      + '</div>';
+
+    var p = s.personal || {};
+    var personalBlock = '<div id="panel-personal" class="card' + (tab === 'personal' ? '' : ' hidden') + '">'
+      + '<div class="row" style="justify-content:space-between;margin-bottom:.55rem">'
+      +   '<h3 class="section-title" style="margin:0">个人报告</h3>'
+      +   (s.personalSubmitted ? '<span class="tag ok">已提交</span>' : '<span class="tag warn">未提交</span>')
+      + '</div>'
+      + '<label class="field-label">一、实验步骤描述</label>'
+      + '<textarea class="inp" id="pr-steps"' + (s.personalSubmitted ? ' disabled' : '') + '>' + esc(p.steps || '') + '</textarea>'
+      + '<label class="field-label" style="margin-top:.55rem">二、数据分析与误差</label>'
+      + '<textarea class="inp" id="pr-analysis"' + (s.personalSubmitted ? ' disabled' : '') + '>' + esc(p.analysis || '') + '</textarea>'
+      + '<label class="field-label" style="margin-top:.55rem">三、总结与反思</label>'
+      + '<textarea class="inp" id="pr-reflection"' + (s.personalSubmitted ? ' disabled' : '') + '>' + esc(p.reflection || '') + '</textarea>'
+      + '<div class="file-drop" style="margin-top:.65rem">'
+      +   '<div>附件上传（可选，Word/PDF/图片）</div>'
+      +   (p.fileName ? '<div style="margin-top:.35rem">已选：<strong>' + esc(p.fileName) + '</strong></div>' : '<div class="sub" style="margin-top:.25rem">未选择文件</div>')
+      +   (!s.personalSubmitted ? '<input type="file" id="pr-file" style="margin-top:.45rem" accept=".doc,.docx,.pdf,image/*" />' : '')
+      + '</div>'
+      + '<div class="row" style="margin-top:.75rem">'
+      +   (!s.personalSubmitted
+          ? '<button type="button" class="btn btn-ghost" id="btn-save-personal">保存草稿</button><button type="button" class="btn btn-primary" id="btn-submit-personal">提交个人报告</button><button type="button" class="btn btn-ghost" id="btn-ask-wxz-report">物小智写作提示</button>'
+          : '<span class="sub">提交于 ' + esc(s.personalSubmittedAt || '') + (s.personalScore != null ? ' · 得分 <strong>' + s.personalScore + '</strong>' : ' · 待教师评分')
+            + (s.personalComment ? ' · 评语：' + esc(s.personalComment) : '') + '</span>')
+      + '</div></div>';
+
+    return ''
+      + '<div class="page-head">'
+      +   '<div><div class="page-kicker">学生 · 步骤 3</div><h2>实验报告</h2>'
+      +   '<div class="page-meta">' + esc(s.name) + ' · ' + esc(s.groupName || '') + (s.expName ? ' · ' + esc(s.expName) : '') + '</div></div>'
+      +   '<div class="seg" id="report-tabs">'
+      +     '<button type="button" data-rtab="group"' + (tab === 'group' ? ' class="on"' : '') + '>组报告</button>'
+      +     '<button type="button" data-rtab="personal"' + (tab === 'personal' ? ' class="on"' : '') + '>个人报告</button>'
+      +   '</div>'
+      + '</div>'
+      + groupBlock + personalBlock;
+  }
+
+  function showPage(p) {
+    stopAcq();
+    state.page = p;
+    var root = document.getElementById('pages');
+    var map = {
+      't-assign': pageTeacherAssign,
+      't-grade': pageTeacherGrade,
+      's-home': pageStudentHome,
+      's-lab': pageStudentLab,
+      's-report': pageStudentReport
+    };
+    root.innerHTML = (map[p] || function () { return '<p>未知页面</p>'; })();
+    document.querySelectorAll('.nav-item').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-p') === p);
+    });
+    // student flow progress markers
+    var order = ['s-home', 's-lab', 's-report'];
+    var idx = order.indexOf(p);
+    document.querySelectorAll('#nav-student .nav-item').forEach(function (btn) {
+      var bi = order.indexOf(btn.getAttribute('data-p'));
+      btn.classList.toggle('done', idx > bi && bi >= 0);
+    });
+    document.querySelectorAll('#nav-student .fn-line').forEach(function (line) {
+      var n = Number(line.getAttribute('data-line'));
+      line.classList.toggle('on', idx >= n);
+    });
+    bindPage(p);
+    saveState();
+    // redraw chart if present
+    setTimeout(function () {
+      var s = getStu();
+      var canvas = document.getElementById('chart-fd');
+      if (canvas && s) {
+        var pts = (s.acq && s.acq.points) || [];
+        var frozen = document.querySelector('[data-rm-mode="done"]');
+        drawChart(canvas, pts, { markRupture: !!frozen });
+        if (!frozen) refreshLiveReadout(s);
+      }
+    }, 0);
+  }
+
+  /* ========== Bindings ========== */
+  function stopAcq() {
+    if (acqTimer) { clearInterval(acqTimer); acqTimer = null; }
+  }
+
+  function refreshLiveReadout(s) {
+    if (document.querySelector('[data-rm-mode="done"]')) return;
+    var pts = (s.acq && s.acq.points) || [];
+    var last = pts.length ? pts[pts.length - 1] : { f: 0, d: 0 };
+    var A0 = 78.54, L0 = 50;
+    var elF = document.getElementById('rd-f');
+    var elD = document.getElementById('rd-d');
+    if (elF) elF.textContent = Number(last.f).toFixed(2);
+    if (elD) elD.textContent = Number(last.d).toFixed(2);
+    var elS = document.getElementById('rd-stress');
+    var elE = document.getElementById('rd-strain');
+    if (elS) elS.textContent = ((last.f * 1000) / A0).toFixed(1);
+    if (elE) elE.textContent = ((last.d / L0) * 100).toFixed(2);
+    var elT = document.getElementById('rd-time');
+    if (elT && s.acq && s.acq.t0) {
+      var sec = Math.max(0, Math.floor((Date.now() - s.acq.t0) / 1000));
+      var m = Math.floor(sec / 60), ss = sec % 60;
+      elT.textContent = (m < 10 ? '0' : '') + m + ':' + (ss < 10 ? '0' : '') + ss;
+    }
+    var mf = document.getElementById('lm-maxf');
+    var md = document.getElementById('lm-maxd');
+    var mw = document.getElementById('lm-work');
+    var sb = document.getElementById('lm-sigb');
+    if (mf) mf.textContent = Number(s.maxF || 0).toFixed(2) + ' kN';
+    if (md) md.textContent = Number(s.maxD || 0).toFixed(2) + ' mm';
+    if (mw) mw.textContent = calcWork(pts).toFixed(1) + ' J';
+    if (sb) sb.textContent = ((Number(s.maxF || 0) * 1000) / A0).toFixed(0) + ' MPa';
+    drawChart(document.getElementById('chart-fd'), pts);
+  }
+
+  function startAcqLoop() {
+    stopAcq();
+    var s = getStu();
+    if (!s || s.expFlow !== 'acquiring' || s.acqPaused) return;
+    if (!s.acq) s.acq = { points: [], t0: Date.now() };
+    if (!s.acq.t0) s.acq.t0 = Date.now();
+    acqTimer = setInterval(function () {
+      var st = getStu();
+      if (!st || st.expFlow !== 'acquiring' || st.acqPaused) return;
+      var n = st.acq.points.length;
+      var d = n * 0.06;
+      var f;
+      if (d < 0.55) f = d * 42;
+      else if (d < 1.0) f = 23.1 + (d - 0.55) * 2.2;
+      else if (d < 2.5) f = 24.1 + Math.sin((d - 1.0) * 4) * 0.35;
+      else if (d < 7.0) f = 24.0 + (d - 2.5) * 1.78;
+      else if (d < 10) f = 32.0 - (d - 7.0) * 1.0;
+      else if (d < 14.5) f = 29.0 - (d - 10) * 1.2;
+      else f = Math.max(4, 23.6 - (d - 14.5) * 8);
+      f = Math.max(0, f + (Math.random() - 0.5) * 0.18);
+      st.acq.points.push({ d: d, f: f, t: Date.now() });
+      if (f > st.maxF) st.maxF = f;
+      if (d > st.maxD) st.maxD = d;
+      refreshLiveReadout(st);
+      if (n % 8 === 0) saveState();
+    }, 120);
+  }
+
+  function syncGroupDataFromStudent(s) {
+    var gr = ensureGroupReport(s.taskId, s.groupId);
+    gr.data = {
+      fMax: s.maxF,
+      dMax: s.maxD,
+      points: (s.acq && s.acq.points) ? s.acq.points.slice() : [],
+      fractureType: s.fractureType,
+      fractureConf: s.fractureConf,
+      fractureImg: s.fractureImg,
+      sourceSid: state.studentId,
+      note: ''
+    };
+    gr.html = buildGroupHtml(s, gr.data);
+    gr.sourceSid = state.studentId;
+    // 同步同组其他成员状态为 lab_done（若仍在 in_lab/assigned）
+    var g = findGroup(s.groupId);
+    if (g) {
+      g.members.forEach(function (m) {
+        var o = state.students[m.sid];
+        if (!o) return;
+        if (o.taskId === s.taskId) {
+          o.maxF = s.maxF; o.maxD = s.maxD;
+          o.fractureType = s.fractureType; o.fractureConf = s.fractureConf; o.fractureImg = s.fractureImg;
+          if (!o.acq || !o.acq.points || o.acq.points.length < (s.acq.points || []).length) {
+            o.acq = { points: (s.acq.points || []).slice(), t0: s.acq.t0 };
+          }
+          if (o.status === 'in_lab' || o.status === 'assigned') o.status = 'lab_done';
+          o.expFlow = 'done_viz';
+        }
+      });
+    }
+  }
+
+  function openGradeModal(sid) {
+    var s = state.students[sid];
+    if (!s) return;
+    var gr = s.taskId ? ensureGroupReport(s.taskId, s.groupId) : null;
+    var body = ''
+      + '<p class="sub" style="margin:0 0 .7rem">' + esc(s.name) + '（' + esc(sid) + '）· ' + esc(s.groupName) + ' · ' + esc(s.expName) + '</p>'
+      + '<div class="grid-2">'
+      +   '<div class="card" style="box-shadow:none">'
+      +     '<strong>组报告</strong> ' + (gr && gr.submitted ? '<span class="tag ok">已提交</span>' : '<span class="tag muted">未提交</span>')
+      +     '<div class="report-body" style="margin-top:.5rem;max-height:220px;overflow:auto">' + ((gr && gr.html) || '<p class="sub">无</p>') + '</div>'
+      +     '<div class="score-box" style="margin-top:.55rem">'
+      +       '<label>组报告得分（0–100）<input class="inp" id="md-g-score" type="number" min="0" max="100" value="' + (gr && gr.score != null ? gr.score : '') + '"' + (gr && gr.submitted ? '' : ' disabled') + ' /></label>'
+      +       '<label style="flex:1">组评语<textarea class="inp" id="md-g-comment" style="min-height:64px"' + (gr && gr.submitted ? '' : ' disabled') + '>' + esc(gr ? gr.comment : '') + '</textarea></label>'
+      +     '</div>'
+      +   '</div>'
+      +   '<div class="card" style="box-shadow:none">'
+      +     '<strong>个人报告</strong> ' + (s.personalSubmitted ? '<span class="tag ok">已提交</span>' : '<span class="tag muted">未提交</span>')
+      +     '<div class="report-body" style="margin-top:.5rem;max-height:220px;overflow:auto;font-size:.86rem">'
+      +       '<p><strong>步骤</strong>：' + esc((s.personal && s.personal.steps) || '（空）') + '</p>'
+      +       '<p><strong>分析</strong>：' + esc((s.personal && s.personal.analysis) || '（空）') + '</p>'
+      +       '<p><strong>反思</strong>：' + esc((s.personal && s.personal.reflection) || '（空）') + '</p>'
+      +       '<p><strong>附件</strong>：' + esc((s.personal && s.personal.fileName) || '无') + '</p>'
+      +     '</div>'
+      +     '<div class="score-box" style="margin-top:.55rem">'
+      +       '<label>个人得分（0–100）<input class="inp" id="md-p-score" type="number" min="0" max="100" value="' + (s.personalScore != null ? s.personalScore : '') + '"' + (s.personalSubmitted ? '' : ' disabled') + ' /></label>'
+      +       '<label style="flex:1">个人评语<textarea class="inp" id="md-p-comment" style="min-height:64px"' + (s.personalSubmitted ? '' : ' disabled') + '>' + esc(s.personalComment || '') + '</textarea></label>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+    openModal('评阅打分', body,
+      '<button type="button" class="btn btn-ghost" data-close>取消</button>'
+      + '<button type="button" class="btn btn-primary" id="md-save-grade">保存评分</button>', true);
+    document.getElementById('md-save-grade').onclick = function () {
+      if (gr && gr.submitted) {
+        var gs = document.getElementById('md-g-score').value;
+        gr.score = gs === '' ? null : Math.max(0, Math.min(100, Number(gs)));
+        gr.comment = document.getElementById('md-g-comment').value.trim();
+        // 同组分数同步展示
+        var g = findGroup(s.groupId);
+        if (g) {
+          g.members.forEach(function (m) {
+            var o = state.students[m.sid];
+            if (o && o.taskId === s.taskId) { /* 分数存在 groupReports */ }
+          });
+        }
+      }
+      if (s.personalSubmitted) {
+        var ps = document.getElementById('md-p-score').value;
+        s.personalScore = ps === '' ? null : Math.max(0, Math.min(100, Number(ps)));
+        s.personalComment = document.getElementById('md-p-comment').value.trim();
+      }
+      saveState();
+      closeModal();
+      showPage('t-grade');
+    };
+  }
+
+  function bindPage(p) {
+    if (p === 't-assign') {
+      var btn = document.getElementById('btn-dispatch');
+      if (btn) btn.onclick = function () {
+        var expId = document.getElementById('as-exp').value;
+        var exp = findExp(expId);
+        var gids = Array.prototype.map.call(document.querySelectorAll('.g-pick:checked'), function (el) { return el.value; });
+        if (!gids.length) { alert('请至少选择一个小组'); return; }
+        var task = {
+          id: uid('task'),
+          expId: expId,
+          expName: exp ? exp.name : expId,
+          groupIds: gids,
+          place: document.getElementById('as-place').value.trim(),
+          timeText: document.getElementById('as-time').value.trim(),
+          note: document.getElementById('as-note').value.trim(),
+          createdAt: new Date().toISOString(),
+          teacher: state.teacherName
+        };
+        state.tasks.push(task);
+        gids.forEach(function (gid) {
+          var g = findGroup(gid);
+          if (!g) return;
+          ensureGroupReport(task.id, gid);
+          g.members.forEach(function (m) {
+            var st = state.students[m.sid];
+            if (!st) return;
+            st.status = 'assigned';
+            st.taskId = task.id;
+            st.expId = task.expId;
+            st.expName = task.expName;
+            st.place = task.place;
+            st.timeText = task.timeText;
+            st.note = task.note;
+            st.expFlow = 'wait_door';
+            st.doorClosed = false;
+            st.acqPaused = false;
+            st.acq = { points: [], t0: 0 };
+            st.maxF = 0; st.maxD = 0;
+            st.fractureImg = null; st.fractureType = null; st.fractureConf = 0;
+            st.groupConfirmed = false;
+            st.personalSubmitted = false;
+            st.personalSubmittedAt = null;
+            st.personalScore = null;
+            st.personalComment = '';
+            st.personal = { steps: '', analysis: '', reflection: '', fileName: '', fileDataUrl: '' };
+          });
+        });
+        saveState();
+        alert('已向 ' + gids.length + ' 个小组下发「' + task.expName + '」任务');
+        showPage('t-assign');
+      };
+    }
+
+    if (p === 't-grade') {
+      document.querySelectorAll('[data-grade]').forEach(function (btn) {
+        btn.onclick = function () { openGradeModal(btn.getAttribute('data-grade')); };
+      });
+    }
+
+    if (p === 's-home') {
+      var b1 = document.getElementById('btn-start-lab');
+      if (b1) b1.onclick = function () {
+        var s = getStu();
+        s.status = 'in_lab';
+        s.expFlow = 'wait_door';
+        saveState();
+        showPage('s-lab');
+      };
+      var b2 = document.getElementById('btn-go-lab');
+      if (b2) b2.onclick = function () { showPage('s-lab'); };
+      var b3 = document.getElementById('btn-go-report');
+      if (b3) b3.onclick = function () { showPage('s-report'); };
+    }
+
+    if (p === 's-lab') {
+      var goR = document.getElementById('btn-go-report');
+      if (goR) goR.onclick = function () { showPage('s-report'); };
+
+      function switchLabView(view) {
+        var s = getStu();
+        if (!s) return;
+        var order = ['wait_door', 'acquiring', 'post_break', 'done_viz'];
+        var ci = order.indexOf(s.expFlow || 'wait_door');
+        if (view === 'door' && ci >= 0) { state.labView = 'door'; showPage('s-lab'); return; }
+        if (view === 'acq' && ci >= 1) { state.labView = 'acq'; showPage('s-lab'); return; }
+        if (view === 'frac' && ci >= 2) { state.labView = 'frac'; showPage('s-lab'); return; }
+      }
+      document.querySelectorAll('[data-lab-view]').forEach(function (el) {
+        el.onclick = function () { switchLabView(el.getAttribute('data-lab-view')); };
+      });
+
+      var door = document.getElementById('lab-door');
+      if (door) door.onchange = function () {
+        getStu().doorClosed = !!door.checked;
+        saveState();
+      };
+
+      var startM = document.getElementById('btn-start-machine');
+      if (startM) startM.onclick = function () {
+        var s = getStu();
+        if (!s.doorClosed) { alert('请先确认安全门已关闭'); return; }
+        s.expFlow = 'acquiring';
+        s.acqPaused = false;
+        s.acq = { points: [], t0: Date.now() };
+        state.labView = 'acq';
+        saveState();
+        showPage('s-lab');
+        startAcqLoop();
+      };
+
+      var stop = document.getElementById('btn-acq-stop');
+      if (stop) stop.onclick = function () {
+        getStu().acqPaused = true;
+        stopAcq();
+        saveState();
+        showPage('s-lab');
+      };
+      var resume = document.getElementById('btn-acq-resume');
+      if (resume) resume.onclick = function () {
+        getStu().acqPaused = false;
+        saveState();
+        showPage('s-lab');
+        startAcqLoop();
+      };
+      var rupture = document.getElementById('btn-rupture');
+      if (rupture) rupture.onclick = function () {
+        var s = getStu();
+        stopAcq();
+        s.acqPaused = true;
+        s.expFlow = 'post_break';
+        state.labView = 'frac';
+        saveState();
+        showPage('s-lab');
+      };
+
+      var cap = document.getElementById('btn-cap-ok');
+      if (cap) cap.onclick = function () {
+        var s = getStu();
+        // 演示用占位断口图（SVG data url）
+        s.fractureImg = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200">'
+          + '<rect width="100%" height="100%" fill="#1e293b"/>'
+          + '<ellipse cx="160" cy="100" rx="90" ry="55" fill="#94a3b8"/>'
+          + '<ellipse cx="160" cy="100" rx="50" ry="30" fill="#64748b"/>'
+          + '<text x="160" y="185" text-anchor="middle" fill="#e2e8f0" font-size="14" font-family="sans-serif">断口图像</text></svg>'
+        );
+        s.fractureType = Math.random() > 0.35 ? 'ductile' : 'brittle';
+        s.fractureConf = 0.82 + Math.random() * 0.12;
+        s.expFlow = 'done_viz';
+        saveState();
+        showPage('s-lab');
+      };
+
+      var file = document.getElementById('frac-file');
+      if (file) file.onchange = function () {
+        var f = file.files && file.files[0];
+        if (!f) return;
+        var reader = new FileReader();
+        reader.onload = function () {
+          var s = getStu();
+          s.fractureImg = reader.result;
+          s.fractureType = 'ductile';
+          s.fractureConf = 0.88;
+          s.expFlow = 'done_viz';
+          saveState();
+          showPage('s-lab');
+        };
+        reader.readAsDataURL(f);
+      };
+
+      var tog = document.getElementById('btn-toggle-frac');
+      if (tog) tog.onclick = function () {
+        var s = getStu();
+        s.fractureType = s.fractureType === 'ductile' ? 'brittle' : 'ductile';
+        saveState();
+        showPage('s-lab');
+      };
+
+      var finish = document.getElementById('lab-finish');
+      if (finish) finish.onclick = function () {
+        var s = getStu();
+        stopAcq();
+        s.status = 'lab_done';
+        s.expFlow = 'done_viz';
+        syncGroupDataFromStudent(s);
+        saveState();
+        alert('组报告已根据现场数据生成。请组员在「实验报告」中确认并提交；个人报告可课后填写。');
+        state.reportTab = 'group';
+        showPage('s-report');
+      };
+
+      // 若正在采集页，恢复定时器
+      var s0 = getStu();
+      if (s0 && s0.status === 'in_lab' && s0.expFlow === 'acquiring' && !s0.acqPaused) startAcqLoop();
+    }
+
+    if (p === 's-report') {
+      var tabs = document.getElementById('report-tabs');
+      if (tabs) {
+        tabs.onclick = function (e) {
+          var b = e.target.closest('[data-rtab]');
+          if (!b) return;
+          state.reportTab = b.getAttribute('data-rtab');
+          showPage('s-report');
+        };
+      }
+      var conf = document.getElementById('btn-confirm-group');
+      if (conf) conf.onclick = function () {
+        var s = getStu();
+        var gr = ensureGroupReport(s.taskId, s.groupId);
+        if (gr.confirmedBy.indexOf(state.studentId) < 0) gr.confirmedBy.push(state.studentId);
+        s.groupConfirmed = true;
+        saveState();
+        showPage('s-report');
+      };
+      var subG = document.getElementById('btn-submit-group');
+      if (subG) subG.onclick = function () {
+        var s = getStu();
+        var gr = ensureGroupReport(s.taskId, s.groupId);
+        var g = findGroup(s.groupId);
+        var need = g ? g.members.length : 0;
+        if (gr.confirmedBy.length < need) {
+          alert('还需 ' + (need - gr.confirmedBy.length) + ' 名组员确认后才能提交组报告');
+          return;
+        }
+        if (!gr.data) { alert('尚无组实验数据'); return; }
+        gr.submitted = true;
+        gr.submittedAt = new Date().toLocaleString();
+        state.reportTab = 'personal';
+        saveState();
+        alert('组报告已提交，等待教师评阅');
+        showPage('s-report');
+      };
+
+      function readPersonalFields(s) {
+        s.personal.steps = (document.getElementById('pr-steps') || {}).value || '';
+        s.personal.analysis = (document.getElementById('pr-analysis') || {}).value || '';
+        s.personal.reflection = (document.getElementById('pr-reflection') || {}).value || '';
+      }
+      var saveP = document.getElementById('btn-save-personal');
+      if (saveP) saveP.onclick = function () {
+        var s = getStu();
+        readPersonalFields(s);
+        saveState();
+        alert('个人报告草稿已保存（可回家继续填写）');
+      };
+      var subP = document.getElementById('btn-submit-personal');
+      if (subP) subP.onclick = function () {
+        var s = getStu();
+        readPersonalFields(s);
+        if (!s.personal.steps.trim() && !s.personal.analysis.trim() && !s.personal.fileName) {
+          alert('请至少填写部分内容或上传附件');
+          return;
+        }
+        s.personalSubmitted = true;
+        s.personalSubmittedAt = new Date().toLocaleString();
+        s.status = 'submitted';
+        saveState();
+        alert('个人报告已提交');
+        showPage('s-report');
+      };
+      var pf = document.getElementById('pr-file');
+      if (pf) pf.onchange = function () {
+        var f = pf.files && pf.files[0];
+        if (!f) return;
+        var s = getStu();
+        readPersonalFields(s);
+        s.personal.fileName = f.name;
+        var reader = new FileReader();
+        reader.onload = function () {
+          s.personal.fileDataUrl = reader.result;
+          saveState();
+          showPage('s-report');
+        };
+        reader.readAsDataURL(f);
+      };
+      var ask = document.getElementById('btn-ask-wxz-report');
+      if (ask) ask.onclick = function () {
+        openWxzSkill('s-gen', '根据实验数据生成报告草稿');
+      };
+    }
+  }
+
+  /* ========== Shell / Login ========== */
+  function enterApp() {
+    document.getElementById('screen-login').classList.add('hidden');
+    document.getElementById('screen-app').classList.remove('hidden');
+    document.getElementById('wxz-fab').classList.remove('hidden');
+    var isTea = state.role === 'teacher';
+    document.getElementById('nav-teacher').classList.toggle('hidden', !isTea);
+    document.getElementById('nav-student').classList.toggle('hidden', isTea);
+    document.getElementById('top-who').textContent = isTea
+      ? ('教师 · ' + state.teacherName)
+      : (function () {
+          var s = getStu();
+          return (s ? s.name : '') + ' · ' + state.studentId + (s ? ' · ' + s.groupName : '');
+        })();
+    // 角色切换后回到功能入口首页，避免串用对方能力
+    state.wxzView = 'home';
+    state.wxzSkill = null;
+    state.wxzMsgs = [];
+    syncWxzSession();
+    var page = state.page || (isTea ? 't-assign' : 's-home');
+    if (isTea && page.indexOf('s-') === 0) page = 't-assign';
+    if (!isTea && page.indexOf('t-') === 0) page = 's-home';
+    showPage(page);
+    renderWxz();
+  }
+
+  function fillLogin() {
+    var selStu = document.getElementById('sel-stu');
+    selStu.innerHTML = allStudentsFlat().map(function (m) {
+      return '<option value="' + esc(m.sid) + '">' + esc(m.sid + ' · ' + m.name + ' · ' + m.groupName) + '</option>';
+    }).join('');
+    var selTea = document.getElementById('sel-tea');
+    selTea.innerHTML = DEMO_TEACHERS.map(function (t) {
+      return '<option value="' + esc(t) + '">' + esc(t) + '</option>';
+    }).join('');
+  }
+
+  document.querySelectorAll('input[name="role"]').forEach(function (r) {
+    r.onchange = function () {
+      var role = document.querySelector('input[name="role"]:checked').value;
+      document.getElementById('login-stu').classList.toggle('hidden', role !== 'student');
+      document.getElementById('login-tea').classList.toggle('hidden', role !== 'teacher');
+    };
+  });
+
+  document.getElementById('btn-login').onclick = function () {
+    var role = document.querySelector('input[name="role"]:checked').value;
+    state.role = role;
+    if (role === 'teacher') {
+      state.teacherName = document.getElementById('sel-tea').value;
+      state.studentId = null;
+      state.page = 't-assign';
+    } else {
+      state.studentId = document.getElementById('sel-stu').value;
+      state.teacherName = null;
+      state.page = 's-home';
+    }
+    saveState();
+    enterApp();
+  };
+
+  document.getElementById('btn-logout').onclick = function () {
+    stopAcq();
+    state.role = null;
+    state.page = null;
+    state.wxzOpen = false;
+    state.wxzView = 'home';
+    state.wxzSkill = null;
+    saveState();
+    document.getElementById('screen-app').classList.add('hidden');
+    document.getElementById('screen-login').classList.remove('hidden');
+    document.getElementById('wxz-fab').classList.add('hidden');
+    document.getElementById('wxz-fab').classList.remove('is-open');
+    document.getElementById('wxz-panel').classList.add('hidden');
+  };
+
+  document.getElementById('btn-reset').onclick = function () {
+    if (!confirm('确定重置全部本地数据？')) return;
+    stopAcq();
+    var role = state.role, sid = state.studentId, tea = state.teacherName;
+    state = createInitialState();
+    state.role = role; state.studentId = sid; state.teacherName = tea;
+    saveState();
+    enterApp();
+  };
+
+  document.querySelectorAll('.nav-item').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      showPage(btn.getAttribute('data-p'));
+    });
+  });
+
+  document.getElementById('wxz-fab').onclick = function () {
+    if (state.wxzOpen) {
+      state.wxzOpen = false;
+    } else {
+      state.wxzOpen = true;
+      state.wxzView = 'home';
+      state.wxzSkill = null;
+    }
+    saveState();
+    renderWxz();
+  };
+  document.getElementById('wxz-close').onclick = function () {
+    state.wxzOpen = false;
+    saveState();
+    renderWxz();
+  };
+  document.getElementById('wxz-back').onclick = function () {
+    wxzGoHome();
+  };
+  document.getElementById('wxz-home').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-skill]');
+    if (!b) return;
+    openWxzSkill(b.getAttribute('data-skill'));
+  });
+  document.getElementById('wxz-send').onclick = function () {
+    wxzSend(document.getElementById('wxz-input').value);
+  };
+  document.getElementById('wxz-input').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') wxzSend(document.getElementById('wxz-input').value);
+  });
+  document.getElementById('wxz-chips').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-chip]');
+    if (!b) return;
+    var skill = findWxzSkill(state.wxzSkill);
+    var i = Number(b.getAttribute('data-chip'));
+    if (skill && skill.chips && skill.chips[i]) wxzSend(skill.chips[i]);
+  });
+
+  document.getElementById('modal-mask').addEventListener('click', function (e) {
+    if (e.target.id === 'modal-mask') closeModal();
+  });
+
+  fillLogin();
+  // 若上次已登录则直接进入（演示便利）
+  if (state.role === 'teacher' || (state.role === 'student' && state.studentId && state.students[state.studentId])) {
+    enterApp();
+  }
+})();
+  </script>
+</body>
+</html>

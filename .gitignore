@@ -1,0 +1,14 @@
+node_modules/
+data/
+*.db
+*.db-*
+.env
+.DS_Store
+uploads/
+package-lock.json
+__pycache__/
+*.pyc
+_tmp_*
+_make_*
+.trae-html-share-packages/
+_restore/

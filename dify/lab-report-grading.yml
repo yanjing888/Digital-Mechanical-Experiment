@@ -1,0 +1,441 @@
+app:
+  description: 力学实验数字化平台 - 组报告/个人报告分分支 AI 评阅
+  icon: 📝
+  icon_background: '#E4FBCC'
+  mode: workflow
+  name: 力学实验报告AI评阅
+  use_icon_as_answer_icon: false
+kind: app
+version: 0.1.5
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      enabled: false
+    opening_statement: ''
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+      - data:
+          isInIteration: false
+          sourceType: start
+          targetType: if-else
+        id: start-source-branch-target
+        source: start
+        sourceHandle: source
+        target: branch
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: if-else
+          targetType: llm
+        id: branch-true-llm_personal-target
+        source: branch
+        sourceHandle: 'true'
+        target: llm_personal
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: if-else
+          targetType: llm
+        id: branch-false-llm_group-target
+        source: branch
+        sourceHandle: 'false'
+        target: llm_group
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: llm
+          targetType: variable-aggregator
+        id: llm_personal-source-aggregate-target
+        source: llm_personal
+        sourceHandle: source
+        target: aggregate
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: llm
+          targetType: variable-aggregator
+        id: llm_group-source-aggregate-target
+        source: llm_group
+        sourceHandle: source
+        target: aggregate
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: variable-aggregator
+          targetType: code
+        id: aggregate-source-code-target
+        source: aggregate
+        sourceHandle: source
+        target: code
+        targetHandle: target
+        type: custom
+      - data:
+          isInIteration: false
+          sourceType: code
+          targetType: end
+        id: code-source-end-target
+        source: code
+        sourceHandle: source
+        target: end
+        targetHandle: target
+        type: custom
+    nodes:
+      - data:
+          desc: 平台传入报告与现场数据
+          selected: false
+          title: 开始
+          type: start
+          variables:
+            - label: 报告类型
+              max_length: 32
+              options: []
+              required: true
+              type: text-input
+              variable: report_type
+            - label: 学生姓名
+              max_length: 64
+              options: []
+              required: true
+              type: text-input
+              variable: student_name
+            - label: 学号
+              max_length: 64
+              options: []
+              required: true
+              type: text-input
+              variable: student_sid
+            - label: 小组
+              max_length: 64
+              options: []
+              required: false
+              type: text-input
+              variable: group_name
+            - label: 实验名称
+              max_length: 128
+              options: []
+              required: false
+              type: text-input
+              variable: exp_name
+            - label: 报告正文
+              max_length: 16000
+              options: []
+              required: true
+              type: paragraph
+              variable: report_text
+            - label: 现场数据
+              max_length: 8000
+              options: []
+              required: false
+              type: paragraph
+              variable: lab_data
+            - label: 有效字数提示
+              max_length: 32
+              options: []
+              required: false
+              type: text-input
+              variable: content_chars
+        height: 300
+        id: start
+        position:
+          x: 30
+          y: 200
+        positionAbsolute:
+          x: 30
+          y: 200
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+      - data:
+          cases:
+            - case_id: 'true'
+              conditions:
+                - comparison_operator: is
+                  id: cond_report_personal
+                  value: personal
+                  varType: string
+                  variable_selector:
+                    - start
+                    - report_type
+              id: 'true'
+              logical_operator: and
+          desc: IF report_type 是 personal → 个人；ELSE → 组报告
+          selected: false
+          title: 报告类型判断
+          type: if-else
+        height: 126
+        id: branch
+        position:
+          x: 320
+          y: 240
+        positionAbsolute:
+          x: 320
+          y: 240
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+      - data:
+          context:
+            enabled: false
+            variable_selector: []
+          desc: 学生自填个人报告
+          memory:
+            window:
+              enabled: false
+              size: 10
+          model:
+            completion_params:
+              temperature: 0.15
+            mode: chat
+            name: gpt-4o-mini
+            provider: openai
+          prompt_template:
+            - id: sys
+              role: system
+              text: |
+                你是北方工业大学力学实验课程助教，专门评阅「个人报告」。
+                个人报告由学生本人填写：实验步骤描述、数据分析与误差、总结与反思。
+                必须只根据正文实际写出的内容给分，禁止臆造。
+                只输出一行 JSON，不要 markdown：
+                {"score":12,"comment":"……"}
+            - id: user
+              role: user
+              text: |
+                【个人报告评阅】
+                学生：{{#start.student_name#}}（{{#start.student_sid#}}）
+                小组：{{#start.group_name#}}
+                实验：{{#start.exp_name#}}
+                平台估算有效字数：{{#start.content_chars#}}
+
+                【现场实验数据】（仅对照；正文未写到的不算学生已掌握）
+                {{#start.lab_data#}}
+
+                【个人报告正文】
+                {{#start.report_text#}}
+
+                评分（总分100）：
+                1. 步骤具体可复现 0-25
+                2. 分析含具体数值 0-25
+                3. 误差具体非空话 0-25
+                4. 反思结合本人操作 0-15
+                5. 表述规范 0-10
+
+                硬性规则：
+                - 三部分几乎为空/仅标题/有效论述不足约40字：score 必须 5–15，评语写明「未见有效内容，建议退回」。禁止「有深度」「质量较高」等空话。
+                - 正文偏短缺数据：通常 15–40 分。
+                - 不得因 lab_data 完整就给高分；评语与分数一致。
+          selected: false
+          title: 个人报告评阅
+          type: llm
+          variables: []
+          vision:
+            enabled: false
+        height: 90
+        id: llm_personal
+        position:
+          x: 620
+          y: 80
+        positionAbsolute:
+          x: 620
+          y: 80
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+      - data:
+          context:
+            enabled: false
+            variable_selector: []
+          desc: 平台汇总组报告
+          memory:
+            window:
+              enabled: false
+              size: 10
+          model:
+            completion_params:
+              temperature: 0.15
+            mode: chat
+            name: gpt-4o-mini
+            provider: openai
+          prompt_template:
+            - id: sys
+              role: system
+              text: |
+                你是北方工业大学力学实验课程助教，专门评阅「组报告」。
+                组报告通常含力-位移曲线、断口与关键数据。
+                必须只根据正文实际内容给分，禁止臆造。
+                只输出一行 JSON，不要 markdown：
+                {"score":80,"comment":"……"}
+            - id: user
+              role: user
+              text: |
+                【组报告评阅】
+                学生：{{#start.student_name#}}（{{#start.student_sid#}}）
+                小组：{{#start.group_name#}}
+                实验：{{#start.exp_name#}}
+                平台估算有效字数：{{#start.content_chars#}}
+
+                【现场实验数据】
+                {{#start.lab_data#}}
+
+                【组报告正文】
+                {{#start.report_text#}}
+
+                评分（总分100）：
+                1. 结构完整 0-20
+                2. 关键数据与现场一致 0-25
+                3. 曲线与断口分析合理 0-30
+                4. 结论自洽少空话 0-25
+
+                硬性规则：正文几乎为空或缺曲线/断口/关键数据时 score≤25；与 lab_data 严重矛盾须扣分；评语与分数一致。
+          selected: false
+          title: 组报告评阅
+          type: llm
+          variables: []
+          vision:
+            enabled: false
+        height: 90
+        id: llm_group
+        position:
+          x: 620
+          y: 360
+        positionAbsolute:
+          x: 620
+          y: 360
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+      - data:
+          desc: 只聚合已执行分支的 LLM 文本
+          output_type: string
+          selected: false
+          title: 合并评阅文本
+          type: variable-aggregator
+          variables:
+            - - llm_personal
+              - text
+            - - llm_group
+              - text
+        height: 110
+        id: aggregate
+        position:
+          x: 920
+          y: 220
+        positionAbsolute:
+          x: 920
+          y: 220
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+      - data:
+          code: |
+            import json
+            import re
+
+            def main(llm_text: str) -> dict:
+                text = (llm_text or "").strip()
+                m = re.search(r"\{[\s\S]*\}", text)
+                raw = m.group(0) if m else text
+                try:
+                    data = json.loads(raw)
+                except Exception:
+                    data = {"score": 40, "comment": (text[:500] if text else "评阅生成失败，请人工评分。")}
+                score = data.get("score", 40)
+                try:
+                    score = float(score)
+                except Exception:
+                    score = 40.0
+                score = max(0.0, min(100.0, round(score, 1)))
+                comment = str(data.get("comment") or "").strip()
+                if not comment:
+                    comment = "请教师补充评语。"
+                return {"score": score, "comment": comment}
+          code_language: python3
+          desc: 解析 JSON 为 score/comment
+          outputs:
+            comment:
+              children: null
+              type: string
+            score:
+              children: null
+              type: number
+          selected: false
+          title: 解析结果
+          type: code
+          variables:
+            - value_selector:
+                - aggregate
+                - output
+              variable: llm_text
+        height: 90
+        id: code
+        position:
+          x: 1220
+          y: 220
+        positionAbsolute:
+          x: 1220
+          y: 220
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+      - data:
+          desc: 返回给平台
+          outputs:
+            - value_selector:
+                - code
+                - score
+              variable: score
+            - value_selector:
+                - code
+                - comment
+              variable: comment
+          selected: false
+          title: 结束
+          type: end
+        height: 90
+        id: end
+        position:
+          x: 1520
+          y: 220
+        positionAbsolute:
+          x: 1520
+          y: 220
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+    viewport:
+      x: 0
+      y: 0
+      zoom: 0.7
