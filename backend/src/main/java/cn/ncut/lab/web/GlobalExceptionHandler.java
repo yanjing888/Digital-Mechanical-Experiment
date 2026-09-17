@@ -8,6 +8,10 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String,Object>> uploadLimit(Exception e) {
+        return ResponseEntity.status(413).body(Map.of("error","文件超过20MB限制，请压缩或拆分后重试"));
+    }
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<Map<String, Object>> handleApi(ApiException e) {

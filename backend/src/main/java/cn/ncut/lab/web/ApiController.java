@@ -4,6 +4,7 @@ import cn.ncut.lab.service.DifyService;
 import cn.ncut.lab.service.FractureService;
 import cn.ncut.lab.service.RosterService;
 import cn.ncut.lab.service.StoreService;
+import cn.ncut.lab.service.RunService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -23,12 +24,14 @@ public class ApiController {
     private final DifyService dify;
     private final FractureService fracture;
     private final RosterService roster;
+    private final RunService runs;
 
-    public ApiController(StoreService store, DifyService dify, FractureService fracture, RosterService roster) {
+    public ApiController(StoreService store, DifyService dify, FractureService fracture, RosterService roster, RunService runs) {
         this.store = store;
         this.dify = dify;
         this.fracture = fracture;
         this.roster = roster;
+        this.runs = runs;
     }
 
     @GetMapping("/meta")
@@ -145,6 +148,7 @@ public class ApiController {
     @PostMapping("/tasks")
     public Map<String, Object> createTask(HttpServletRequest req, @RequestBody Map<String, Object> body) {
         Sessions.requireTeacher(req);
+        runs.preserveAssignments(strList(body.get("groupIds")));
         Map<String, Object> task = store.createTask(
                 str(body.get("expId")),
                 strList(body.get("groupIds")),
@@ -156,6 +160,7 @@ public class ApiController {
         );
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("task", task);
+        runs.provision(str(task.get("id")));
         out.put("tasks", store.listTasks());
         return out;
     }

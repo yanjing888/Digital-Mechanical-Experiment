@@ -19,6 +19,18 @@ import java.util.Map;
  */
 @Service
 public class FractureService {
+    @SuppressWarnings("unchecked")
+    public Map<String,Object> analyzeMacro(String image,String experiment,String angle) {
+        try {
+            HttpRequest req=HttpRequest.newBuilder().uri(URI.create(serviceUrl.replaceAll("/+$", "")+"/analyze-macro"))
+                .header("Content-Type","application/json").timeout(Duration.ofSeconds(45))
+                .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(Map.of("imageBase64",image,"experiment",experiment,"angle",angle)))).build();
+            HttpResponse<String> res=http.send(req,HttpResponse.BodyHandlers.ofString());
+            Map<String,Object> data=mapper.readValue(res.body(),Map.class);
+            if(res.statusCode()!=200)throw new ApiException(503,"宏观分析失败，请稍后重试；原图已保存");
+            return data;
+        }catch(ApiException e){throw e;}catch(Exception e){throw new ApiException(503,"断口服务未就绪；原图已保存，可由教师人工复核");}
+    }
 
     @Value("${fracture.service-url:http://127.0.0.1:8090}")
     private String serviceUrl;

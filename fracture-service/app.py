@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from macro import analyze_macro
 
 ROOT = Path(__file__).resolve().parent
 SCRIPT = ROOT / "analyze.py"
@@ -19,6 +20,18 @@ if not SCRIPT.exists():
     SCRIPT = ROOT.parent / "server" / "fracture" / "analyze.py"
 
 app = FastAPI(title="Fracture Analysis Service", version="1.0.0")
+
+class MacroIn(BaseModel):
+    imageBase64: str
+    experiment: str = "TENS"
+    angle: str = "正面"
+
+@app.post("/analyze-macro")
+def macro_api(body: MacroIn):
+    try:
+        return analyze_macro(body.imageBase64, body.experiment, body.angle)
+    except Exception:
+        return JSONResponse({"error": "无法分析该照片，请检查图片格式与大小"}, status_code=400)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

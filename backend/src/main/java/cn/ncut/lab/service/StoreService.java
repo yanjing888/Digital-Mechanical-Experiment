@@ -492,8 +492,7 @@ public class StoreService {
         String html = data != null ? buildGroupHtml(data) : asStr(row.get("html"), "");
         List<Map<String, Object>> deductions = JsonUtil.readListOfMap(asStr(row.get("deductions_json")), new ArrayList<>());
         Double score;
-        if (!deductions.isEmpty()) score = (double) computeOperationScore(deductions);
-        else score = row.get("score") == null ? null : asDouble(row.get("score"), 0);
+        score = row.get("score") == null ? (double) computeOperationScore(deductions) : asDouble(row.get("score"), 0);
 
         Map<String, Object> gr = new LinkedHashMap<>();
         gr.put("taskId", row.get("task_id"));
@@ -516,8 +515,7 @@ public class StoreService {
     public Map<String, Object> saveGroupReport(Map<String, Object> gr) {
         List<Map<String, Object>> deductions = (List<Map<String, Object>>) gr.getOrDefault("deductions", new ArrayList<>());
         Double score;
-        if (deductions != null && !deductions.isEmpty()) score = (double) computeOperationScore(deductions);
-        else score = gr.get("score") == null ? null : asDouble(gr.get("score"), 0);
+        score = gr.get("score") == null ? (double) computeOperationScore(deductions) : asDouble(gr.get("score"), 0);
         jdbc.update("UPDATE group_reports SET data_json = ?, html = ?, confirmed_by_json = ?, submitted = ?, submitted_at = ?, "
                         + "score = ?, comment = ?, source_sid = ?, deductions_json = ?, material_type = ? WHERE task_id = ? AND group_id = ?",
                 gr.get("data") != null ? JsonUtil.write(gr.get("data")) : null,

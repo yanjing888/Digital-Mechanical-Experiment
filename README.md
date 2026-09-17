@@ -1,60 +1,56 @@
 # 力学实验数字化平台
 
-基于原型 `lab-digital-platform.html` 落地的前后端系统。前端视觉与交互样式保持一致；右下角物小智按角色提供能力入口。
+本系统用于实验后的断口采集、原设备数据归档、课堂操作记录和报告评阅。安全门联锁、实验控制与原始采集由拉力设备原有客户端负责；平台不控制设备启动、暂停或停止。
 
-## 目录
+## 当前现场流程
 
-```
-server/          # Express + MySQL API
-  fracture/      # OpenCV 断口分析脚本
-public/          # 前端静态页
-lab-digital-platform.html  # 原始单页原型（保留对照）
-requirements-fracture.txt  # 断口分析 Python 依赖
-```
+1. 教师完成分组并下发任务。
+2. 学生在原设备客户端完成装样、关门联锁、实验与原始数据采集。
+3. 实验完成后，学生在平台填写试件和设备编号，按规程拆样并采集断口照片。
+4. 学生导入本次设备导出的 CSV、TXT、TSV、XLS 或 XLSX 文件，明确选择数据起始行、力列、位移列和力单位。
+5. 平台将原始数据文件、照片、操作扣分明细和归档快照关联到同一实验记录；之后学生可提交个人 Word/PDF 报告。
 
-## 快速启动
+## 启动生产版本
 
-```bash
+生产使用的是 Spring Boot + Vue 版本：
+
+```powershell
+# 终端 1：断口分析服务
+cd fracture-service
+python -m uvicorn app:app --host 127.0.0.1 --port 8090
+
+# 终端 2：构建并启动后端
+cd backend
+mvn package
+java -Dfile.encoding=UTF-8 -jar target/lab-digital-platform.jar
+
+# 终端 3：前端开发服务
+cd frontend
 npm install
-npm run seed   # 初始化/重置演示数据
-npm start      # http://localhost:3780
-```
-
-### 断口 OpenCV 分析（学生端「断口确认」）
-
-需本机 Python 3，并安装依赖：
-
-```bash
-pip install -r requirements-fracture.txt
-```
-
-可选环境变量：
-
-```
-FRACTURE_PYTHON=python
-# Windows 也可: FRACTURE_PYTHON=py -3
-FRACTURE_TIMEOUT_MS=45000
-```
-
-上传/拍摄断口图后，服务端调用 `server/fracture/analyze.py`，返回过程图（灰度/阈值/边缘/轮廓）、几何特征，并与力—位移曲线做自洽说明。
-
-开发热重载：
-
-```bash
 npm run dev
 ```
 
-## 账号（演示）
+打开 `http://localhost:3780`。部署到服务器时可先运行 `npm --prefix frontend run build`，再运行 `mvn -f backend/pom.xml package`；构建后的前端静态文件会随 Spring Boot 包一起提供。
 
-登录页只输入账号和密码，**系统自动识别角色**（无需手动切换）。
+也可运行 `scripts/start-spring-vue.bat` 启动三个服务。
+
+## 已实施功能
+
+- 实验记录以“每次实验”为单位，保存成员快照、试件编号、设备编号、断口照片、设备原始数据及归档快照。
+- 断口可先采集，原设备数据可稍后补齐；归档时才检查完整性。
+- 教师可在手机或平板上记录课堂扣分、填写依据、撤销纠错、锁定课堂记录，并独立保存最终分和评语。
+- 学生上传 Word/PDF 后保留原件、SHA-256 校验值、服务端提交时间和版本回执。扫描件或解析不完整的报告会提示人工查看，不会直接按内容缺失扣分。
+- 教师可配置扣分清单、报告必需章节、组内相似度阈值和补做时间窗口；重做生成独立实验记录，教师决定采用哪次成绩。
+- 断口分析使用拍摄质量和宏观轮廓线索，结果必须由教师复核。报告 AI 建议和查重结果均不自动覆盖教师最终分。
+
+首次上线前，教师应在“教学规则与学校模板”中录入最终扣分项目与分值，并上传学校正式报告模板。OCR 为可选能力：如果需要识别扫描件，请在环境变量中设置 `REPORT_OCR_COMMAND` 为本机 Tesseract 可执行文件路径。
+
+## 账号（演示）
 
 | 身份 | 账号 | 密码 |
 |------|------|------|
 | 教师（固定） | `teacher` | `123456` |
 | 学生 | 学号（上传名单后生成） | `123456` |
-
-教师下发任务流程：下载模板 → 上传学生名单 → 新建并编排小组 → 选择小组下发。
-
 
 ## API 概览
 
@@ -63,27 +59,17 @@ npm run dev
 | GET | `/api/meta` | 实验目录、教师、小组 |
 | POST | `/api/auth/login` | 登录 |
 | GET | `/api/session` | 当前会话快照 |
-| GET/POST | `/api/tasks` | 任务列表 / 下发 |
-| POST | `/api/lab/*` | 现场实验流程 |
-| POST | `/api/lab/fracture/analyze` | OpenCV 断口分析（过程图+报告） |
-| GET/POST | `/api/reports/*` | 组报告 / 个人报告 |
-| GET/POST | `/api/grading/*` | 评阅打分 |
-| POST | `/api/grading/:sid/ai-review` | AI 评阅（Dify 工作流） |
-| GET | `/api/assistant/status` | 智能体状态 |
+| GET/POST | `/api/tasks` | 任务列表与下发 |
+| GET/POST | `/api/workflow/*` | 实验记录、原始数据、照片、课堂扣分、报告、复核与重做 |
+| GET | `/api/assistant/status` | AI 评阅服务状态 |
 
-## 智能体（物小智 / AI 评阅）
+旧版 Node/Express 原型仍在仓库中供对照；现场应使用上面的 Spring Boot + Vue 启动方式。
 
-- 前端：右下角 FAB；教师评阅弹窗内有「AI 评阅组报告 / 个人报告」
-- 后端：`server/services/dify.js` 调用 Dify Workflow
-- 工作流 DSL 与接入说明：[`dify/README.md`](dify/README.md)、[`dify/lab-report-grading.yml`](dify/lab-report-grading.yml)
-- 环境变量见 `.env.example`（`DIFY_ENABLED` / `DIFY_API_URL` / `DIFY_GRADING_API_KEY`）
-- 未配置 Dify 时会走本地演示评阅，分数与评语仍可人工修改后保存
-
-## 数据（MySQL）
+## 数据库配置
 
 默认连接配置写在 `.env`：
 
-```
+```text
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=root
@@ -91,8 +77,4 @@ DB_PASSWORD=your_password
 DB_NAME=lab_digital_platform
 ```
 
-首次启动会自动建库建表；空库会自动播种演示数据。手动重置：
-
-```bash
-npm run seed
-```
+后端首次启动会补齐新表，不会清空旧有数据。旧的组报告和个人报告会在首次进入新的实验记录时保留为升级前快照；升级前曲线不会被标注为本次从设备导入的数据。

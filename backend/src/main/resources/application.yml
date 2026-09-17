@@ -15,8 +15,8 @@ spring:
       maximum-pool-size: 10
   servlet:
     multipart:
-      max-file-size: 6MB
-      max-request-size: 12MB
+      max-file-size: 20MB
+      max-request-size: 22MB
   mvc:
     async:
       request-timeout: 180000
@@ -32,6 +32,10 @@ dify:
 
 app:
   student-default-password: ${STUDENT_DEFAULT_PASSWORD:123456}
+
+report:
+  ocr-command: ${REPORT_OCR_COMMAND:}
+  ocr-language: ${REPORT_OCR_LANGUAGE:chi_sim+eng}
 
 logging:
   level:

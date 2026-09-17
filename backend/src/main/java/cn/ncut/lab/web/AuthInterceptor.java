@@ -29,6 +29,9 @@ public class AuthInterceptor implements HandlerInterceptor {
         Map<String, Object> sess = store.getSession(token);
         if (sess == null) throw new ApiException(401, "未登录");
         request.setAttribute(Sessions.ATTR, sess);
+        if (path.startsWith("/api/lab/") || path.startsWith("/api/reports/") || (path.startsWith("/api/grading/") && !"GET".equals(request.getMethod()))) {
+            throw new ApiException(410, "实验流程已升级，请使用采集与归档页面；本平台不控制原设备");
+        }
         return true;
     }
 

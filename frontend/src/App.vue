@@ -45,14 +45,14 @@
       </div>
       <nav id="nav-teacher" class="topnav hidden" aria-label="教师导航">
         <button type="button" class="nav-item active" data-p="t-assign">下发任务</button>
-        <button type="button" class="nav-item" data-p="t-grade">评阅打分</button>
+        <button type="button" class="nav-item" data-p="t-grade">课堂记录与评阅</button>
       </nav>
       <nav id="nav-student" class="topnav flow-nav hidden" aria-label="学生流程">
-        <button type="button" class="nav-item active" data-p="s-home"><span class="fn-num">1</span>任务</button>
+        <button type="button" class="nav-item active" data-p="s-home"><span class="fn-num">1</span>任务中心</button>
         <span class="fn-line" data-line="1"></span>
-        <button type="button" class="nav-item" data-p="s-lab"><span class="fn-num">2</span>实验</button>
+        <button type="button" class="nav-item" data-p="s-lab"><span class="fn-num">2</span>现场实验</button>
         <span class="fn-line" data-line="2"></span>
-        <button type="button" class="nav-item" data-p="s-report"><span class="fn-num">3</span>报告</button>
+        <button type="button" class="nav-item" data-p="s-report"><span class="fn-num">3</span>实验报告</button>
       </nav>
       <div class="meta">
         <span class="who" id="top-who">—</span>
@@ -65,35 +65,6 @@
       <span class="app-foot-sep">·</span>
       <span id="foot-role">—</span>
     </footer>
-  </div>
-
-  <button type="button" class="wxz-fab hidden" id="wxz-fab" aria-label="打开物小智">
-    <img class="wxz-fab-img wxz-fab-idle" src="/assets/wxz-fab-idle.png" alt="" />
-    <img class="wxz-fab-img wxz-fab-hover" src="/assets/wxz-fab-hover.png" alt="" />
-  </button>
-  <div id="wxz-panel" class="wxz-panel hidden" role="dialog" aria-label="物小智助手">
-    <div class="wxz-head">
-      <div class="wxz-head-left">
-        <img class="wxz-avatar" id="wxz-avatar" src="/assets/wxz-fab-hover.png" alt="" />
-        <div>
-          <strong id="wxz-title">物小智</strong>
-          <div class="wxz-sub" id="wxz-subtitle">力学实验智能助手</div>
-        </div>
-      </div>
-      <div class="wxz-head-actions">
-        <button type="button" id="wxz-back" class="hidden" title="返回功能入口" aria-label="返回">←</button>
-        <button type="button" id="wxz-close" aria-label="关闭">✕</button>
-      </div>
-    </div>
-    <div id="wxz-home" class="wxz-home"></div>
-    <div id="wxz-chat" class="wxz-chat hidden">
-      <div class="wxz-chips" id="wxz-chips"></div>
-      <div class="wxz-msgs" id="wxz-msgs"></div>
-      <div class="wxz-input">
-        <input id="wxz-input" class="inp" placeholder="输入你的问题…" />
-        <button type="button" class="btn btn-primary btn-sm" id="wxz-send">发送</button>
-      </div>
-    </div>
   </div>
 
   <div id="modal-mask" class="modal-mask hidden">

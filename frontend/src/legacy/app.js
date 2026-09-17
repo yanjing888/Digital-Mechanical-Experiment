@@ -1,4 +1,5 @@
 import { api } from '../api.js'
+import { mountWorkflow, unmountWorkflow } from '../workflow/mount.js'
 
 export function bootApp() {
   var PAGE_KEY = 'lab-platform-page';
@@ -80,7 +81,7 @@ export function bootApp() {
   }
 
   function studentJourney(status) {
-    var labels = ['领取任务', '现场实验', '撰写报告', '提交完成'];
+    var labels = ['任务中心', '现场实验', '实验报告', '提交完成'];
     var idx = ({ none: 0, assigned: 0, in_lab: 1, lab_done: 2, submitted: 3 })[status] || 0;
     return '<div class="journey-bar" aria-label="实验进度">'
       + labels.map(function (lab, i) {
@@ -113,7 +114,7 @@ export function bootApp() {
     if (roleEl) {
       roleEl.textContent = isTea
         ? '教师工作台 · 分组下发与报告评阅'
-        : '学生实验流程 · 任务 → 实验 → 报告';
+        : '学生实验流程 · 任务中心 → 现场实验 → 实验报告';
     }
   }
 
@@ -1165,7 +1166,6 @@ export function bootApp() {
     ][stepNum];
 
     return ''
-      + pageHero('学生 · 我的实验', '实验任务', '')
       + '<div class="stu-hero-card">'
       +   '<div class="stu-hero-left">'
       +     '<div class="stu-exp-badge">实验项目</div>'
@@ -1190,50 +1190,13 @@ export function bootApp() {
       // 左侧主区
       +   '<div class="dash-main">'
       +     '<div class="card dash-card">'
-      +       '<div class="dash-card-head">'
-      +         '<h3 class="dash-card-title"><span class="title-dot"></span>实验进度</h3>'
-      +       '</div>'
       +       studentJourney(s.status)
       +     '</div>'
-
       +     '<div class="card dash-card">'
-      +       '<div class="dash-card-head">'
-      +         '<h3 class="dash-card-title"><span class="title-dot"></span>小组成员</h3>'
-      +         '<span class="tag">' + (ui.snap.mates || []).length + ' 人</span>'
-      +       '</div>'
+      +       '<div class="dash-card-head"><h3 class="dash-card-title"><span class="title-dot"></span>小组成员</h3></div>'
       +       '<div class="mate-grid">' + mateList + '</div>'
       +     '</div>'
-
-      +     (s.tip ? '<div class="card dash-card">'
-      +       '<div class="dash-card-head">'
-      +         '<h3 class="dash-card-title"><span class="title-dot"></span>实验说明</h3>'
-      +       '</div>'
-      +       '<div class="stu-tip-content">' + esc(s.tip) + '</div>'
-      +     '</div>' : '')
-      +   '</div>'
-
-      // 右侧边栏
-      +   '<div class="dash-aside">'
-      +     '<div class="card dash-card aside-card">'
-      +       '<div class="dash-card-head">'
-      +         '<h3 class="dash-card-title"><span class="title-dot"></span>下一步</h3>'
-      +       '</div>'
-      +       '<div class="next-step-box">'
-      +         '<div class="ns-icon">→</div>'
-      +         '<div class="ns-content">'
-      +           '<p class="ns-text">' + esc(nextHint) + '</p>'
-      +         '</div>'
-      +       '</div>'
-      +     '</div>'
-
-      +     '<div class="card dash-card aside-card" style="margin-top:.85rem">'
-      +       '<div class="dash-card-head">'
-      +         '<h3 class="dash-card-title"><span class="title-dot"></span>实验信息</h3>'
-      +       '</div>'
-      +       '<div class="info-list">'
-      +         '<div class="info-item"><span class="info-label">备注</span><span class="info-val">' + esc(s.note || '无') + '</span></div>'
-      +       '</div>'
-      +     '</div>'
+      +     (s.tip ? '<div class="card dash-card"><div class="stu-tip-content">' + esc(s.tip) + '</div></div>' : '')
       +   '</div>'
       + '</div>';
   }
@@ -1494,10 +1457,39 @@ export function bootApp() {
       + groupBlock + personalBlock;
   }
 
+  function paintStudentNav(p) {
+    var order = ['s-home', 's-lab', 's-report'];
+    var idx = order.indexOf(p);
+    var s = stu();
+    var st = s ? s.status : 'none';
+    var phase = st === 'none' || st === 'assigned' ? 0 : (st === 'in_lab' ? 1 : 2);
+    if (idx < 0) idx = phase;
+    document.querySelectorAll('#nav-student .nav-item').forEach(function (btn) {
+      var bi = order.indexOf(btn.getAttribute('data-p'));
+      var done = bi < phase || (bi === 0 && phase > 0) || (bi === 1 && (st === 'lab_done' || st === 'submitted'));
+      if (bi === 2 && st === 'submitted') done = true;
+      btn.classList.toggle('done', done && bi >= 0);
+      btn.classList.toggle('active', btn.getAttribute('data-p') === p);
+    });
+    document.querySelectorAll('#nav-student .fn-line').forEach(function (line) {
+      var li = Number(line.getAttribute('data-line'));
+      line.classList.toggle('on', idx > li || phase > li);
+    });
+  }
+
   async function showPage(p) {
     stopAcq();
+    unmountWorkflow();
     setPage(p);
     var root = document.getElementById('pages');
+    document.querySelectorAll('.topnav .nav-item').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-p') === p);
+    });
+    if (p === 's-lab' || p === 's-report' || p === 't-grade') {
+      if (ui.snap && ui.snap.role !== 'teacher') paintStudentNav(p);
+      mountWorkflow(root, p, ui.snap);
+      return;
+    }
     var map = {
       't-assign': pageTeacherAssign,
       't-grade': pageTeacherGrade,
@@ -1506,19 +1498,7 @@ export function bootApp() {
       's-report': pageStudentReport
     };
     root.innerHTML = (map[p] || function () { return '<p>未知页面</p>'; })();
-
-    document.querySelectorAll('.nav-item').forEach(function (btn) {
-      btn.classList.toggle('active', btn.getAttribute('data-p') === p);
-    });
-    var order = ['s-home', 's-lab', 's-report'];
-    var idx = order.indexOf(p);
-    document.querySelectorAll('#nav-student .nav-item').forEach(function (btn) {
-      var bi = order.indexOf(btn.getAttribute('data-p'));
-      btn.classList.toggle('done', idx > bi && bi >= 0);
-    });
-    document.querySelectorAll('#nav-student .fn-line').forEach(function (line) {
-      line.classList.toggle('on', idx >= Number(line.getAttribute('data-line')));
-    });
+    if (!ui.snap || ui.snap.role !== 'teacher') paintStudentNav(p);
 
     await bindPage(p);
     setTimeout(function () {
@@ -2452,9 +2432,6 @@ export function bootApp() {
     document.getElementById('screen-app').classList.remove('hidden');
     document.getElementById('nav-teacher').classList.toggle('hidden', !isTea);
     document.getElementById('nav-student').classList.toggle('hidden', isTea);
-    window.LabAssistant.show(true);
-    if (window.LabAssistant.refresh) window.LabAssistant.refresh();
-
     document.getElementById('top-who').textContent = isTea
       ? ('教师 · ' + ui.snap.teacherName)
       : (ui.snap.student.name + ' · ' + ui.snap.student.sid + ' · ' + ui.snap.student.groupName);
@@ -2491,6 +2468,7 @@ export function bootApp() {
 
   document.getElementById('btn-logout').onclick = async function () {
     stopAcq();
+    unmountWorkflow();
     try { await api.logout(); } catch (_) {}
     api.setToken('');
     setPage(null);
@@ -2498,7 +2476,6 @@ export function bootApp() {
     document.getElementById('screen-login').classList.remove('hidden');
     var foot = document.getElementById('app-foot');
     if (foot) foot.classList.add('hidden');
-    window.LabAssistant.show(false);
   };
 
   document.querySelectorAll('.nav-item').forEach(function (btn) {
@@ -2508,48 +2485,6 @@ export function bootApp() {
   document.getElementById('modal-mask').addEventListener('click', function (e) {
     if (e.target.id === 'modal-mask') closeModal();
   });
-
-  window.LabAssistant.setContext(function () {
-    var snap = ui.snap || {};
-    return {
-      role: snap.role || 'student',
-      teacherName: snap.teacherName || '',
-      student: snap.student || null,
-      groupReport: snap.groupReport || null,
-      grading: snap.grading || [],
-      applyPersonalDraft: function (draft) {
-        if (!snap.student || snap.student.personalSubmitted) return;
-        var toHtml = function (t) {
-          return (window.LabRichText && window.LabRichText.plainToHtml)
-            ? window.LabRichText.plainToHtml(t || '')
-            : (t || '');
-        };
-        var payload = {
-          steps: toHtml(draft.steps || ''),
-          analysis: toHtml(draft.analysis || ''),
-          reflection: toHtml(draft.reflection || ''),
-          fileName: (snap.student.personal && snap.student.personal.fileName) || '',
-          fileDataUrl: (snap.student.personal && snap.student.personal.fileDataUrl) || ''
-        };
-        api.savePersonal(payload).then(function (r) {
-          if (r.student) ui.snap.student = r.student;
-          else {
-            ui.snap.student.personal = payload;
-          }
-          ui.reportTab = 'personal';
-          localStorage.setItem(TAB_KEY, 'personal');
-          showPage('s-report');
-        }).catch(function () {
-          ui.snap.student.personal = payload;
-          ui.reportTab = 'personal';
-          localStorage.setItem(TAB_KEY, 'personal');
-          showPage('s-report');
-        });
-      }
-    };
-  });
-
-  window.LabAssistant.init();
 
   fillLogin();
   if (api.getToken()) {
