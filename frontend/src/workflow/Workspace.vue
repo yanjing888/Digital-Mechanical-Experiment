@@ -125,7 +125,6 @@ async function select(id) {
 async function aiOperationRef() {
   run.value = await call(`/runs/${run.value.id}/ai/operation`, 'POST', { revision: run.value.revision })
 }
-async function refresh() { if (run.value) { run.value = await call(`/runs/${run.value.id}`); await photos() } await listRuns() }
 async function saveMeta() {
   run.value = await call(`/runs/${run.value.id}`, 'PATCH', { ...meta, experimentAt: meta.experimentAt ? new Date(meta.experimentAt).toISOString() : '', revision: run.value.revision, expectedMetadata: metadataBaseline })
   setMeta()
@@ -173,7 +172,7 @@ onMounted(() => action(async () => {
       if (disposed || busy.value || run.value?.id !== id) return
       // Only refresh classroom facts; do not overwrite in-progress student input or its revision.
       for (const key of ['deductions', 'operationScore', 'calculatedScore', 'classOpen', 'finalScore', 'finalComment']) run.value[key] = fresh[key]
-    } catch { /* Manual refresh exposes connection failures without disrupting typing. */ }
+    } catch { /* Background refresh never disrupts in-progress input. */ }
   }, 10000)
 }))
 onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.values(images).forEach(URL.revokeObjectURL); if (reportPreview.value) URL.revokeObjectURL(reportPreview.value) })
@@ -181,8 +180,8 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
 
 <template>
   <section class="workflow" :class="{ 'workflow--student': !teacher }">
-    <header v-if="!teacher" class="workflow-heading workflow-heading--student"><h1>{{ studentPageTitle }}</h1><div class="wf-toolbar"><button type="button" class="btn btn-ghost" :disabled="busy" @click="action(refresh, '已刷新')">刷新</button></div></header>
-    <div v-else class="wf-teacher-toolbar"><button type="button" class="btn btn-ghost wf-config-trigger" :class="{ 'is-attention': !settings.catalogConfirmed }" @click="showSettings = true"><span class="wf-config-trigger__icon" aria-hidden="true">⚙</span><span>扣分项配置</span><small>{{ settings.catalogConfirmed ? `${settings.catalog.length} 项已启用` : '待确认' }}</small></button><button type="button" class="btn btn-ghost" :disabled="busy" @click="action(refresh, '已刷新')">刷新</button></div>
+    <header v-if="!teacher" class="workflow-heading workflow-heading--student"><h1>{{ studentPageTitle }}</h1></header>
+    <div v-else class="wf-teacher-toolbar"><button type="button" class="btn btn-ghost wf-config-trigger" :class="{ 'is-attention': !settings.catalogConfirmed }" @click="showSettings = true"><span class="wf-config-trigger__icon" aria-hidden="true">⚙</span><span>扣分项配置</span><small>{{ settings.catalogConfirmed ? `${settings.catalog.length} 项已启用` : '待确认' }}</small></button></div>
     <p v-if="error" role="alert" class="wf-message error">{{ error }}</p><p v-if="notice" role="status" class="wf-message success">{{ notice }}</p>
     <div v-if="teacher && showSettings" class="wf-config-mask" @click.self="showSettings = false">
       <aside class="wf-config-drawer" role="dialog" aria-modal="true" aria-labelledby="deduction-config-title">
