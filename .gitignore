@@ -12,3 +12,4 @@ _tmp_*
 _make_*
 .trae-html-share-packages/
 _restore/
+.vscode/

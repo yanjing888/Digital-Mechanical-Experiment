@@ -2,3 +2,5 @@ target/
 *.class
 .idea/
 *.iml
+boot-err.log
+boot-out.log
