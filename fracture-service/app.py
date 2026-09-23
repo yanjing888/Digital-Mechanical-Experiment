@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -27,11 +27,20 @@ class MacroIn(BaseModel):
     angle: str = "正面"
 
 @app.post("/analyze-macro")
-def macro_api(body: MacroIn):
+async def macro_api(request: Request):
     try:
-        return analyze_macro(body.imageBase64, body.experiment, body.angle)
+        body = await request.json()
     except Exception:
-        return JSONResponse({"error": "无法分析该照片，请检查图片格式与大小"}, status_code=400)
+        return JSONResponse({"error": "请求体必须是 JSON"}, status_code=400)
+    image = body.get("imageBase64") or body.get("image_base64")
+    if not image:
+        return JSONResponse({"error": "缺少 imageBase64 字段"}, status_code=400)
+    experiment = body.get("experiment") or "TENS"
+    angle = body.get("angle") or "正面"
+    try:
+        return analyze_macro(str(image), str(experiment), str(angle))
+    except Exception as exc:
+        return JSONResponse({"error": str(exc) or "无法分析该照片，请检查图片格式与大小"}, status_code=400)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

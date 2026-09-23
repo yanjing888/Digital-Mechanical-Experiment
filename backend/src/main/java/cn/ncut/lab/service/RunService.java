@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import javax.imageio.ImageIO;
 import java.io.*;
+import java.nio.file.*;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.*;
@@ -16,7 +17,8 @@ import java.util.*;
 @SuppressWarnings("unchecked")
 public class RunService {
     final JdbcTemplate db;
-    public RunService(JdbcTemplate db) { this.db=db; }
+    final WanceDataService wance;
+    public RunService(JdbcTemplate db, WanceDataService wance) { this.db=db; this.wance=wance; }
     public JdbcTemplate jdbc() { return db; }
     public record Actor(boolean teacher, String id) {}
     static String id() { return UUID.randomUUID().toString(); }
@@ -47,7 +49,7 @@ public class RunService {
         int updated=db.update("UPDATE experiment_runs SET payload=?,revision=revision+1 WHERE id=? AND revision=?",JsonUtil.write(run),run.get("id"),revision);
         if(updated!=1) throw new ApiException(409,"记录已更新，请刷新后重试"); run.put("revision",revision+1);
     }
-    void mutable(Map<String,Object> run) { if(Boolean.TRUE.equals(run.get("archived"))) throw new ApiException(409,"记录已归档；请由教师退回后修改"); }
+    void mutable(Map<String,Object> run) { if(Boolean.TRUE.equals(run.get("archived"))) throw new ApiException(409,"操作记录已提交；请由教师退回后修改"); }
     void checkRevision(Map<String,Object> run,Map<String,Object> body) {
         if(!str(run.get("revision")).equals(str(body.get("revision")))) throw new ApiException(409,"记录已更新，请刷新后重试，未保存的输入仍保留");
     }
@@ -58,10 +60,16 @@ public class RunService {
         List<Map<String,Object>> tasks=db.queryForList("SELECT * FROM tasks WHERE id=?",taskId);
         if(tasks.isEmpty())return;
         Map<String,Object> t=tasks.get(0);
-        for(Map<String,Object> group:db.queryForList("SELECT g.id,g.name FROM task_groups tg JOIN lab_groups g ON g.id=tg.group_id WHERE tg.task_id=?",taskId)) {
-            String runId=UUID.nameUUIDFromBytes((taskId+":"+group.get("id")).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
-            if(db.queryForObject("SELECT COUNT(*) FROM experiment_runs WHERE id=?",Integer.class,runId)>0)continue;
+        for(Map<String,Object> group:db.queryForList(
+                "SELECT g.id,g.name FROM lab_groups g WHERE g.id IN (SELECT group_id FROM task_groups WHERE task_id=?) "
+                        + "OR g.id IN (SELECT DISTINCT group_id FROM students WHERE task_id=? AND group_id IS NOT NULL AND group_id<>'')",
+                taskId, taskId)) {
+            String runId=runIdFor(taskId, str(group.get("id")));
             List<Map<String,Object>> members=db.queryForList("SELECT sid,name FROM students WHERE task_id=? AND group_id=? ORDER BY sid",taskId,group.get("id"));
+            if(db.queryForObject("SELECT COUNT(*) FROM experiment_runs WHERE id=?",Integer.class,runId)>0) {
+                syncRunMembers(runId, members, taskId);
+                continue;
+            }
             if(members.isEmpty()) continue;
             Map<String,Object> r=new LinkedHashMap<>();
             r.put("id",runId); r.put("taskId",taskId); r.put("groupId",group.get("id")); r.put("groupName",group.get("name"));
@@ -82,25 +90,125 @@ public class RunService {
                 db.update("INSERT IGNORE INTO legacy_records(run_id,payload) VALUES(?,?)",runId,JsonUtil.write(Map.of("group",legacy,"personal",legacyPersonal,"capturedAt",now(),"note","升级前记录快照；旧曲线来源未经本次设备文件导入验证")));
             }
             db.update("INSERT IGNORE INTO experiment_runs(id,task_id,group_id,payload,revision,created_at) VALUES(?,?,?,?,0,?)",runId,taskId,group.get("id"),JsonUtil.write(r),r.get("createdAt"));
-            for(Map<String,Object> member:members) {
-                db.update("INSERT IGNORE INTO run_members(run_id,sid,name) VALUES(?,?,?)",runId,member.get("sid"),member.get("name"));
-                db.update("INSERT IGNORE INTO adopted_runs(task_id,sid,run_id) VALUES(?,?,?)",taskId,member.get("sid"),runId);
-            }
+            syncRunMembers(runId, members, taskId);
         }
+    }
+    static String runIdFor(String taskId, String groupId) {
+        return UUID.nameUUIDFromBytes((taskId+":"+groupId).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+    }
+    void createGroupRunIfMissing(String taskId, String groupId, List<Map<String,Object>> members) {
+        if(members.isEmpty()) return;
+        String runId=runIdFor(taskId, groupId);
+        if(db.queryForObject("SELECT COUNT(*) FROM experiment_runs WHERE id=?",Integer.class,runId)>0) return;
+        List<Map<String,Object>> tasks=db.queryForList("SELECT * FROM tasks WHERE id=?",taskId);
+        List<Map<String,Object>> groups=db.queryForList("SELECT id,name FROM lab_groups WHERE id=?",groupId);
+        if(tasks.isEmpty()||groups.isEmpty()) return;
+        Map<String,Object> t=tasks.get(0), group=groups.get(0);
+        Map<String,Object> r=new LinkedHashMap<>();
+        r.put("id",runId); r.put("taskId",taskId); r.put("groupId",groupId); r.put("groupName",group.get("name"));
+        r.put("expName",t.get("exp_name")); r.put("expId",t.get("exp_id")); r.put("timeText",t.get("time_text"));
+        r.put("attempt",1); r.put("members",members); r.put("createdAt",now()); r.put("status","pending"); r.put("classOpen",true);
+        r.put("photos",new ArrayList<>()); r.put("deductions",new ArrayList<>()); r.put("audit",new ArrayList<>());
+        db.update("INSERT IGNORE INTO experiment_runs(id,task_id,group_id,payload,revision,created_at) VALUES(?,?,?,?,0,?)",runId,taskId,groupId,JsonUtil.write(r),r.get("createdAt"));
+    }
+    void syncRunMembers(String runId, List<Map<String,Object>> members, String taskId) {
+        for(Map<String,Object> member:members) {
+            db.update("INSERT IGNORE INTO run_members(run_id,sid,name) VALUES(?,?,?)",runId,member.get("sid"),member.get("name"));
+            db.update("INSERT IGNORE INTO adopted_runs(task_id,sid,run_id) VALUES(?,?,?)",taskId,member.get("sid"),runId);
+        }
+    }
+    /** 同组已下发但本行 task_id 为空时（补录名单等），从组内或 task_groups 同步任务字段。 */
+    @Transactional
+    public void syncStudentTaskAssignment(String sid) {
+        List<Map<String,Object>> rows=db.queryForList("SELECT sid,group_id,task_id FROM students WHERE sid=?",sid.trim());
+        if(rows.isEmpty()) return;
+        Map<String,Object> s=rows.get(0);
+        if(!str(s.get("task_id")).isBlank()) return;
+        String groupId=str(s.get("group_id"));
+        if(groupId.isBlank()) return;
+        List<Map<String,Object>> mates=db.queryForList("SELECT task_id FROM students WHERE group_id=? AND task_id IS NOT NULL AND task_id<>'' LIMIT 1",groupId);
+        String taskId=mates.isEmpty()?"":str(mates.get(0).get("task_id"));
+        if(taskId.isBlank()) {
+            List<Map<String,Object>> latest=db.queryForList(
+                    "SELECT t.id,t.exp_id,t.exp_name,t.note,t.tip,t.place,t.time_text FROM tasks t JOIN task_groups tg ON tg.task_id=t.id "
+                            + "WHERE tg.group_id=? ORDER BY t.created_at DESC LIMIT 1",groupId);
+            if(latest.isEmpty()) return;
+            Map<String,Object> t=latest.get(0);
+            db.update("UPDATE students SET status='assigned', task_id=?, exp_id=?, exp_name=?, note=?, tip=?, place=?, time_text=? "
+                            + "WHERE sid=? AND (task_id IS NULL OR task_id='')",
+                    t.get("id"),t.get("exp_id"),t.get("exp_name"),t.get("note"),t.get("tip"),t.get("place"),t.get("time_text"),sid);
+            taskId=str(t.get("id"));
+        } else {
+            List<Map<String,Object>> task=db.queryForList("SELECT id,exp_id,exp_name,note,tip,place,time_text FROM tasks WHERE id=?",taskId);
+            if(task.isEmpty()) return;
+            Map<String,Object> t=task.get(0);
+            db.update("UPDATE students SET status='assigned', task_id=?, exp_id=?, exp_name=?, note=?, tip=?, place=?, time_text=? "
+                            + "WHERE sid=? AND (task_id IS NULL OR task_id='')",
+                    t.get("id"),t.get("exp_id"),t.get("exp_name"),t.get("note"),t.get("tip"),t.get("place"),t.get("time_text"),sid);
+        }
+        provision(taskId);
+    }
+    @Transactional
+    public void repairAllStudentRuns() {
+        for(Map<String,Object> row:db.queryForList("SELECT sid FROM students")) {
+            String sid=str(row.get("sid"));
+            syncStudentTaskAssignment(sid);
+            ensureStudentRun(new Actor(false,sid));
+        }
+    }
+    /** 下发后若 experiment_runs / run_members 未齐，按学生当前 task_id + group_id 补建。 */
+    void ensureStudentRun(Actor actor) {
+        if(actor.teacher()) return;
+        syncStudentTaskAssignment(actor.id());
+        List<Map<String,Object>> rows=db.queryForList("SELECT sid,name,task_id,group_id FROM students WHERE sid=?",actor.id());
+        if(rows.isEmpty()) return;
+        Map<String,Object> s=rows.get(0);
+        String taskId=str(s.get("task_id")), groupId=str(s.get("group_id"));
+        if(taskId.isBlank()||groupId.isBlank()) return;
+        provision(taskId);
+        String runId=runIdFor(taskId, groupId);
+        List<Map<String,Object>> members=db.queryForList("SELECT sid,name FROM students WHERE task_id=? AND group_id=? ORDER BY sid",taskId,groupId);
+        if(members.isEmpty()) members=List.of(Map.of("sid",s.get("sid"),"name",s.get("name")));
+        if(db.queryForObject("SELECT COUNT(*) FROM experiment_runs WHERE id=?",Integer.class,runId)==0) createGroupRunIfMissing(taskId, groupId, members);
+        syncRunMembers(runId, members, taskId);
+    }
+    public Map<String,Object> studentLabStatus(Actor actor) {
+        if(actor.teacher()) throw new ApiException(403,"需要学生权限");
+        ensureStudentRun(actor);
+        List<Map<String,Object>> rows=db.queryForList("SELECT task_id,group_id,status FROM students WHERE sid=?",actor.id().trim());
+        Map<String,Object> out=new LinkedHashMap<>();
+        if(rows.isEmpty()) { out.put("hasTask",false); out.put("reason","no_student"); return out; }
+        Map<String,Object> s=rows.get(0);
+        String taskId=str(s.get("task_id"));
+        out.put("status",str(s.get("status")));
+        out.put("groupId",str(s.get("group_id")));
+        out.put("hasTask",!taskId.isBlank());
+        if(taskId.isBlank()) {
+            out.put("reason",str(s.get("group_id")).isBlank()?"no_group":"no_task");
+            return out;
+        }
+        provision(taskId);
+        int runCount=db.queryForObject("SELECT COUNT(*) FROM experiment_runs r JOIN run_members m ON m.run_id=r.id WHERE m.sid=?",Integer.class,actor.id());
+        out.put("hasRun",runCount>0);
+        if(runCount==0) out.put("reason","no_run");
+        return out;
     }
     @Transactional
     public List<Map<String,Object>> runs(Actor actor) {
         // One-time compatibility provisioning only for current assignments; new tasks provision immediately.
         for(Map<String,Object> t:db.queryForList(actor.teacher()?"SELECT DISTINCT task_id FROM students WHERE task_id IS NOT NULL":"SELECT DISTINCT task_id FROM students WHERE sid=? AND task_id IS NOT NULL",actor.teacher()?new Object[]{}:new Object[]{actor.id()})) provision(str(t.get("task_id")));
+        if(!actor.teacher()) ensureStudentRun(actor);
         List<Map<String,Object>> rows=actor.teacher()?db.queryForList("SELECT id FROM experiment_runs ORDER BY created_at DESC"):
                 db.queryForList("SELECT r.id FROM experiment_runs r JOIN run_members m ON m.run_id=r.id WHERE m.sid=? ORDER BY r.created_at DESC",actor.id());
         List<Map<String,Object>> out=new ArrayList<>();
         for(Map<String,Object> row:rows) {
-            Map<String,Object> r=load(str(row.get("id")),actor,false);
-            Map<String,Object> s=new LinkedHashMap<>();
-            for(String key:List.of("id","taskId","groupName","expName","timeText","attempt","status","createdAt","members","classOpen","archived","retakeRequest")) s.put(key,r.get(key));
-            s.put("operationScore",operationScore(r)); s.put("photoCount",list(r.get("photos")).size());
-            s.put("dataReady",!map(r.get("data")).isEmpty()); out.add(s);
+            try {
+                Map<String,Object> r=load(str(row.get("id")),actor,false);
+                Map<String,Object> s=new LinkedHashMap<>();
+                for(String key:List.of("id","taskId","groupName","expName","timeText","attempt","status","createdAt","members","classOpen","archived","retakeRequest")) s.put(key,r.get(key));
+                s.put("operationScore",operationScore(r)); s.put("photoCount",list(r.get("photos")).size());
+                s.put("dataReady",!map(r.get("data")).isEmpty()); out.add(s);
+            } catch (ApiException ignored) { /* 跳过单条损坏或无权的记录，避免整表加载失败 */ }
         }
         return out;
     }
@@ -202,11 +310,15 @@ public class RunService {
                 if(!Set.of("png","jpeg","jpg").contains(format))throw new ApiException(400,"支持JPEG和PNG");
                 int w=reader.getWidth(0),h=reader.getHeight(0);
                 if((long)w*h>24000000)throw new ApiException(400,"图片超过2400万像素，请缩小后上传");
-                List<Map<String,Object>> photos=list(r.get("photos"));
-                if(photos.size()>=8)throw new ApiException(400,"每次实验最多保留8张照片，可先移除不采用的照片");
                 String fid=file(id,a,"photo",f,data,format.equals("png")?"image/png":"image/jpeg","","ready");
-                photos.add(Map.of("id",fid,"angle",angle,"name",str(f.getOriginalFilename()),"width",w,"height",h,"at",now(),"warning",Math.min(w,h)<400?"图像较小，建议补拍清晰照片":""));
-                r.put("photos",photos);r.remove("analysis");r.remove("reference");r.put("status","collecting");save(r,a,"采集断口照片："+angle);
+                Map<String,Object> entry=new LinkedHashMap<>();
+                entry.put("id",fid);entry.put("angle",angle);entry.put("name",str(f.getOriginalFilename()));
+                entry.put("width",w);entry.put("height",h);entry.put("at",now());
+                entry.put("warning",Math.min(w,h)<400?"图像较小，建议补拍清晰照片":"");
+                // 同角度重传覆盖；宏观判别只保留最新一张，避免多次试传堆叠
+                List<Map<String,Object>> photos=new ArrayList<>();
+                photos.add(entry);
+                r.put("photos",photos);r.remove("analysis");r.remove("fractureSummary");r.remove("reference");r.put("status","collecting");save(r,a,"采集断口照片："+angle);
             } finally { reader.dispose(); }
         } catch(ApiException e) { throw e; } catch(Exception e) { throw new ApiException(400,"图片损坏，无法读取"); }
         return detail(id,a);
@@ -215,12 +327,28 @@ public class RunService {
     public Map<String,Object> removePhoto(String id,String fid,Actor a) {
         Map<String,Object> r=load(id,a,true);mutable(r);
         r.put("photos",new ArrayList<>(list(r.get("photos")).stream().filter(p->!fid.equals(p.get("id"))).toList()));
-        r.remove("analysis");r.remove("reference");save(r,a,"移除不采用的照片（原文件留存）");return detail(id,a);
+        r.remove("analysis");r.remove("fractureSummary");r.remove("reference");save(r,a,"移除不采用的照片（原文件留存）");return detail(id,a);
     }
     public Map<String,Object> preview(MultipartFile f) {
         List<List<String>> rows=ExperimentDataParser.rows(bytes(f),str(f.getOriginalFilename()));
         return Map.of("rows",rows.stream().limit(12).toList(),"rowCount",rows.size());
     }
+    @Transactional
+    public Map<String,Object> importWanceData(String id,Actor a,String fileName) {
+        Map<String,Object> r=load(id,a,true); mutable(r);
+        try {
+            Path mdb=wance.resolve(fileName);
+            byte[] content=Files.readAllBytes(mdb);
+            Map<String,Object> parsed=new LinkedHashMap<>(WanceMdbReader.parse(mdb));
+            String fid=file(id,a,"data",new MockBytesMultipart(mdb.getFileName().toString(),content),content,"application/x-msaccess","","ready");
+            parsed.put("fileId",fid);parsed.put("fileName",mdb.getFileName().toString());parsed.put("importedAt",now());
+            r.put("data",parsed);r.remove("analysis");r.remove("fractureSummary");
+            Object expAt=parsed.get("experimentAtFromFile");
+            if(expAt!=null&&str(r.get("experimentAt")).isBlank()) r.put("experimentAt",expAt);
+            save(r,a,"关联万测试验数据："+mdb.getFileName());return detail(id,a);
+        } catch(ApiException e) { throw e; } catch(IOException e) { throw new ApiException(503,"读取万测数据失败："+e.getMessage()); }
+    }
+    public Map<String,Object> wanceStatus() throws IOException { return wance.status(); }
     @Transactional
     public Map<String,Object> importData(String id,Actor a,MultipartFile f,int start,int force,int displacement,String unit) {
         Map<String,Object> r=load(id,a,true); mutable(r); byte[] content=bytes(f);
@@ -228,15 +356,15 @@ public class RunService {
         String fid=file(id,a,"data",f,content,"application/octet-stream","","ready");
         parsed.put("fileId",fid);parsed.put("fileName",str(f.getOriginalFilename()));parsed.put("importedAt",now());parsed.put("source","device_file");
         parsed.put("mapping",Map.of("startRow",start,"forceColumn",force,"displacementColumn",displacement,"originalForceUnit",unit));
-        r.put("data",parsed);r.remove("analysis");save(r,a,"导入原设备实验数据");return detail(id,a);
+        r.put("data",parsed);r.remove("analysis");r.remove("fractureSummary");save(r,a,"导入原设备实验数据");return detail(id,a);
     }
     @Transactional
     public Map<String,Object> archive(String id,Actor a,Map<String,Object> b) {
         Map<String,Object> r=load(id,a,true);checkRevision(r,b);mutable(r);
-        required(r.get("specimenId"),"试件编号");required(r.get("deviceId"),"设备编号");required(r.get("experimentAt"),"实验完成时间");
+        if(str(r.get("experimentAt")).isBlank()) r.put("experimentAt",now());
         if(list(r.get("photos")).isEmpty())throw new ApiException(400,"请先采集断口照片");
         if(map(r.get("data")).isEmpty())throw new ApiException(400,"断口已保存；请补齐本次原设备数据后归档");
-        r.put("archived",true);r.put("archivedAt",now());r.put("status","archived");save(r,a,"归档实验操作记录");
+        r.put("archived",true);r.put("archivedAt",now());r.put("status","archived");save(r,a,"提交实验操作记录");
         db.update("INSERT INTO run_archives(id,run_id,payload,created_at) VALUES(?,?,?,?)",id(),id,JsonUtil.write(r),now());
         return detail(id,a);
     }

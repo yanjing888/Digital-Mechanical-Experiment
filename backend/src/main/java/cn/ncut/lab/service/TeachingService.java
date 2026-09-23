@@ -78,8 +78,15 @@ public class TeachingService {
     }
     @Transactional
     public Object control(String id,Actor a,Map<String,Object> b) {
-        teacher(a);Map<String,Object> r=runs.load(id,a,true);runs.checkRevision(r,b);String reason=required(b.get("reason"),"操作理由");
-        switch(str(b.get("action"))) {
+        teacher(a);Map<String,Object> r=runs.load(id,a,true);runs.checkRevision(r,b);
+        String action=str(b.get("action"));
+        String reason=switch (action) {
+            case "close" -> reasonOrDefault(b.get("reason"), "教师结束课堂记录");
+            case "open" -> reasonOrDefault(b.get("reason"), "教师重新开放课堂");
+            case "clearGrade" -> reasonOrDefault(b.get("reason"), "按扣分明细恢复计分");
+            default -> required(b.get("reason"), "操作理由");
+        };
+        switch(action) {
             case "close" -> r.put("classOpen",false);
             case "open" -> r.put("classOpen",true);
             case "return" -> {r.put("archived",false);r.put("status","collecting");}
@@ -87,7 +94,12 @@ public class TeachingService {
             case "clearGrade" -> {r.remove("finalScore");r.remove("finalComment");}
             default -> throw new ApiException(400,"未知操作");
         }
-        runs.save(r,a,str(b.get("action"))+"："+reason);return runs.detail(id,a);
+        runs.save(r,a,action+"："+reason);return runs.detail(id,a);
+    }
+
+    private static String reasonOrDefault(Object value,String fallback) {
+        String s=str(value);
+        return s.isBlank() ? fallback : s;
     }
     private void validateExtension(MultipartFile f) {
         if(!str(f.getOriginalFilename()).toLowerCase(Locale.ROOT).matches(".*\\.(docx|doc|pdf)$"))throw new ApiException(400,"支持Word（DOC/DOCX）和PDF");
@@ -128,7 +140,14 @@ public class TeachingService {
         Map<String,Object> f=runs.getFile(str(draft.get("fileId")),a);int version=old.size()+1;
         Map<String,Object> report=new LinkedHashMap<>(draft);report.remove("textPreview");report.put("observation",observation);report.put("requestId",requestId);report.put("sha256",f.get("sha256"));
         Map<String,Object> submittedData=new LinkedHashMap<>(map(r.get("data")));submittedData.remove("points");
-        report.put("runSnapshot",Map.of("specimenId",r.get("specimenId"),"deviceId",r.get("deviceId"),"dataFileId",map(r.get("data")).get("fileId"),"data",submittedData,"photos",r.get("photos"),"runRevision",r.get("revision")));
+        Map<String,Object> snap=new LinkedHashMap<>();
+        snap.put("specimenId",str(r.get("specimenId")));snap.put("deviceId",str(r.get("deviceId")));
+        snap.put("dataFileId",map(r.get("data")).get("fileId"));snap.put("data",submittedData);snap.put("photos",r.get("photos"));
+        snap.put("runRevision",r.get("revision"));
+        Map<String,Object> fracture=map(r.get("fractureSummary"));
+        snap.put("fractureJudgment",fracture.get("judgment"));snap.put("fractureLabel",fracture.get("label"));
+        snap.put("fractureReportBasis",fracture.get("reportBasis"));
+        report.put("runSnapshot",snap);
         List<String> missing=new ArrayList<>();String text=str(f.get("extracted"));
         if("ready".equals(f.get("parse_status")))for(Object section:(List<?>)settings().getOrDefault("requiredSections",List.of()))if(!text.replaceAll("\\s","").contains(str(section).replaceAll("\\s","")))missing.add(str(section));
         report.put("templateCheck",Map.of("missingSections",missing,"checked",!((List<?>)settings().getOrDefault("requiredSections",List.of())).isEmpty()&&"ready".equals(f.get("parse_status")),"note","章节检查仅供参考；公式、表格及排版请对照原件"));

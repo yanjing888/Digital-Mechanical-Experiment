@@ -17,7 +17,7 @@
     acqStartedAt: null,
     ruptureHinted: false,
     labView: null, // 'acq' | 'frac' — 采集完成后在步骤间切换
-    assignDraft: { expId: '', timeText: '', place: '', note: '', tip: '' },
+    assignDraft: { expId: 'STEEL_TENS', timeText: '', place: '', note: '', tip: '' },
     fracStepId: 'original',
     fracBusy: false,
     fracCamStream: null,
@@ -947,6 +947,13 @@
     }
   }
 
+  var ASSIGN_EXPERIMENTS = [
+    { id: 'STEEL_TENS', name: '钢的拉伸', hours: 2 },
+    { id: 'CAST_TENS', name: '铸铁的拉伸', hours: 2 },
+    { id: 'STEEL_COMP', name: '钢的压缩', hours: 2 },
+    { id: 'CAST_COMP', name: '铸铁的压缩', hours: 2 }
+  ];
+
   function pageTeacherAssign() {
     var meta = ui.snap.meta || {};
     var tasks = ui.snap.tasks || [];
@@ -958,8 +965,8 @@
     var readyGroups = groups.filter(function (g) { return (g.members || []).length > 0; });
     var canDispatch = students.length > 0 && !ungrouped.length && readyGroups.length > 0;
     var draft = ui.assignDraft || {};
-    var exps = meta.experiments || [];
-    if (!draft.expId && exps[0]) draft.expId = exps[0].id;
+    var exps = ASSIGN_EXPERIMENTS;
+    if (!draft.expId || !exps.some(function (e) { return e.id === draft.expId; })) draft.expId = exps[0].id;
 
     var poolItems = ungrouped.length ? ungrouped.map(function (s) {
       return '<label class="stu-pick">'
@@ -995,7 +1002,7 @@
 
     var expOpts = exps.map(function (e) {
       return '<option value="' + e.id + '"' + (draft.expId === e.id ? ' selected' : '') + '>'
-        + esc(e.name) + '（' + e.hours + ' 学时）</option>';
+        + esc(e.name) + '</option>';
     }).join('');
 
     var taskRows = tasks.length ? tasks.map(function (t) {

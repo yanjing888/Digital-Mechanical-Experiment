@@ -1,5 +1,6 @@
 package cn.ncut.lab.config;
 
+import cn.ncut.lab.service.ExperimentCatalog;
 import cn.ncut.lab.util.PasswordUtil;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -22,6 +23,7 @@ public class DbInitializer implements CommandLineRunner {
     public void run(String... args) {
         migrate();
         seedIfEmpty();
+        ensureStandardExperiments();
     }
 
     private void migrate() {
@@ -147,8 +149,20 @@ public class DbInitializer implements CommandLineRunner {
         }
         Integer exps = jdbc.queryForObject("SELECT COUNT(*) FROM experiments", Integer.class);
         if (exps != null && exps == 0) {
-            jdbc.update("INSERT INTO experiments (id, name, hours, tip) VALUES (?, ?, ?, ?)", "TENS", "材料拉伸", 2, "");
-            jdbc.update("INSERT INTO experiments (id, name, hours, tip) VALUES (?, ?, ?, ?)", "COMP", "材料压缩", 2, "");
+            for (String id : ExperimentCatalog.IDS) {
+                jdbc.update("INSERT INTO experiments (id, name, hours, tip) VALUES (?, ?, ?, ?)",
+                        id, ExperimentCatalog.NAMES.get(id), 2, "");
+            }
+        }
+    }
+
+    /** 保证下发下拉始终为固定的四个实验项目（已有库也会 upsert 名称）。 */
+    private void ensureStandardExperiments() {
+        for (String id : ExperimentCatalog.IDS) {
+            jdbc.update(
+                    "INSERT INTO experiments (id, name, hours, tip) VALUES (?, ?, ?, ?) "
+                            + "ON DUPLICATE KEY UPDATE name = VALUES(name), hours = VALUES(hours)",
+                    id, ExperimentCatalog.NAMES.get(id), 2, "");
         }
     }
 

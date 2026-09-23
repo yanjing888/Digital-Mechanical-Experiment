@@ -208,8 +208,25 @@ async function listGroups() {
   return out;
 }
 
+const ASSIGN_EXPERIMENT_IDS = ['STEEL_TENS', 'CAST_TENS', 'STEEL_COMP', 'CAST_COMP'];
+const ASSIGN_EXPERIMENT_NAMES = {
+  STEEL_TENS: '钢的拉伸',
+  CAST_TENS: '铸铁的拉伸',
+  STEEL_COMP: '钢的压缩',
+  CAST_COMP: '铸铁的压缩'
+};
+
+async function listAssignExperiments() {
+  const rows = await query(
+    `SELECT id, name, hours FROM experiments WHERE id IN (${ASSIGN_EXPERIMENT_IDS.map(() => '?').join(',')})`,
+    ASSIGN_EXPERIMENT_IDS
+  );
+  const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+  return ASSIGN_EXPERIMENT_IDS.map((id) => byId[id] || { id, name: ASSIGN_EXPERIMENT_NAMES[id], hours: 2 });
+}
+
 async function listMeta() {
-  const experiments = await query('SELECT id, name, hours FROM experiments ORDER BY id');
+  const experiments = await listAssignExperiments();
   const teachers = await query('SELECT name FROM teachers ORDER BY name');
   const students = await listStudents();
   return {

@@ -73,8 +73,21 @@ public class ReviewService {
             Map<String,Object> result=fracture.analyzeMacro(image,str(r.get("expId")),str(photo.get("angle")));
             results.add(Map.of("photoId",photo.get("id"),"angle",photo.get("angle"),"result",result));
         }
-        r.put("analysis",Map.of("photos",results,"at",now(),"status","ready","note","后台AI宏观分析结果，供个人报告中断口描述比对；教师评阅时可覆盖参考分"));
-        runs.save(r,a,"完成断口宏观特征分析");return runs.detail(id,a);
+        Map<String,Object> curveDetail=FractureSummary.fromCurve(map(r.get("data")),str(r.get("expId")));
+        Map<String,Object> photoDetail=FractureSummary.fromPhotos(results);
+        Map<String,Object> summary=FractureSummary.build(str(r.get("expId")),map(r.get("data")),results);
+        summary.put("at",now());
+        r.put("fractureSummary",summary);
+        Map<String,Object> analysis=new LinkedHashMap<>();
+        analysis.put("photos",results);
+        analysis.put("curve",curveDetail);
+        analysis.put("photoAggregate",photoDetail);
+        analysis.put("combined",summary.get("judgment"));
+        analysis.put("at",now());
+        analysis.put("status","ready");
+        analysis.put("note","后台判别依据，供教师与学生报告比对；不向学生展示处理过程");
+        r.put("analysis",analysis);
+        runs.save(r,a,"完成断口与曲线综合判别");return runs.detail(id,a);
     }
     @Transactional
     public Object similarity(String id,Actor a) {

@@ -4,8 +4,10 @@ const { initDb, query, withTransaction } = require('./db');
 const { hashPassword } = require('./services/auth');
 
 const EXPS = [
-  { id: 'TENS', name: '材料拉伸', hours: 2, tip: '' },
-  { id: 'COMP', name: '材料压缩', hours: 2, tip: '' }
+  { id: 'STEEL_TENS', name: '钢的拉伸', hours: 2, tip: '' },
+  { id: 'CAST_TENS', name: '铸铁的拉伸', hours: 2, tip: '' },
+  { id: 'STEEL_COMP', name: '钢的压缩', hours: 2, tip: '' },
+  { id: 'CAST_COMP', name: '铸铁的压缩', hours: 2, tip: '' }
 ];
 
 /** 系统固定教师账号 */

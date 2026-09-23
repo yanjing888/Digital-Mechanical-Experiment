@@ -19,17 +19,41 @@ public class WorkflowController {
     public WorkflowController(RunService runs,TeachingService teaching,ReviewService review) { this.runs=runs;this.teaching=teaching;this.review=review; }
     static RunService.Actor actor(HttpServletRequest req) {
         Map<String,Object> s=Sessions.get(req); boolean teacher="teacher".equals(s.get("role"));
-        return new RunService.Actor(teacher,String.valueOf(s.get(teacher?"teacher_name":"student_id")));
+        return new RunService.Actor(teacher,String.valueOf(s.get(teacher?"teacher_name":"student_id")).trim());
     }
     @GetMapping("/runs") public Object list(HttpServletRequest q) { return runs.runs(actor(q)); }
+    @GetMapping("/lab-status") public Object labStatus(HttpServletRequest q) {
+        RunService.Actor a=actor(q);
+        Map<String,Object> out=new java.util.LinkedHashMap<>(runs.studentLabStatus(a));
+        if(!a.teacher()) out.put("sid",a.id());
+        return out;
+    }
+    @PostMapping("/repair-runs") public Object repairRuns(HttpServletRequest q) {
+        RunService.Actor a=actor(q);
+        if(!a.teacher()) throw new cn.ncut.lab.web.ApiException(403,"需要教师权限");
+        runs.repairAllStudentRuns();
+        return Map.of("ok",true);
+    }
     @GetMapping("/runs/{id}") public Object get(HttpServletRequest q,@PathVariable String id) {return runs.detail(id,actor(q));}
     @GetMapping("/runs/{id}/classroom") public Object classroom(HttpServletRequest q,@PathVariable String id) {return runs.classroom(id,actor(q));}
     @GetMapping("/runs/{id}/legacy") public Object legacy(HttpServletRequest q,@PathVariable String id) {return runs.legacy(id,actor(q));}
     @PatchMapping("/runs/{id}") public Object update(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return runs.update(id,actor(q),b);}
-    @PostMapping("/runs/{id}/photos") public Object photo(HttpServletRequest q,@PathVariable String id,@RequestParam MultipartFile file,@RequestParam String angle) {return runs.photo(id,actor(q),file,angle);}
+    @PostMapping("/runs/{id}/photos") public Object photo(HttpServletRequest q,@PathVariable String id,@RequestParam MultipartFile file,@RequestParam String angle) {
+        RunService.Actor a=actor(q);
+        runs.photo(id,a,file,angle);
+        try { return review.analyze(id,a); }
+        catch (ApiException ex) {
+            Map<String,Object> out=new LinkedHashMap<>(runs.detail(id,a));
+            out.put("analyzeError",ex.getMessage());
+            return out;
+        }
+    }
     @DeleteMapping("/runs/{id}/photos/{fid}") public Object removePhoto(HttpServletRequest q,@PathVariable String id,@PathVariable String fid) {return runs.removePhoto(id,fid,actor(q));}
     @PostMapping("/preview") public Object preview(HttpServletRequest q,@RequestParam MultipartFile file) {actor(q);return runs.preview(file);}
+    @GetMapping("/wance/status") public Object wanceStatus(HttpServletRequest q) throws Exception { actor(q); return runs.wanceStatus(); }
+    @PostMapping("/runs/{id}/data/wance") public Object wanceData(HttpServletRequest q,@PathVariable String id,@RequestBody(required=false) Map<String,Object> b) {return runs.importWanceData(id,actor(q),b==null?null:str(b.get("fileName")));}
     @PostMapping("/runs/{id}/data") public Object data(HttpServletRequest q,@PathVariable String id,@RequestParam MultipartFile file,@RequestParam int start,@RequestParam int force,@RequestParam int displacement,@RequestParam String unit) {return runs.importData(id,actor(q),file,start,force,displacement,unit);}
+    static String str(Object v) { return v==null?"":v.toString().trim(); }
     @PostMapping("/runs/{id}/archive") public Object archive(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {
         Map<String,Object> archived=runs.archive(id,actor(q),b);
         try { return review.analyze(id,actor(q)); } catch (RuntimeException e) { return archived; }

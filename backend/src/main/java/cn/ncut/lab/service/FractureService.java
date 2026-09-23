@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,12 +23,25 @@ public class FractureService {
     @SuppressWarnings("unchecked")
     public Map<String,Object> analyzeMacro(String image,String experiment,String angle) {
         try {
+            Map<String,Object> payload=new LinkedHashMap<>();
+            payload.put("imageBase64",image==null?"":image);
+            payload.put("experiment", ExperimentCatalog.fractureMode(experiment));
+            payload.put("angle",angle==null||angle.isBlank()?"正面":angle);
+            String json=mapper.writeValueAsString(payload);
             HttpRequest req=HttpRequest.newBuilder().uri(URI.create(serviceUrl.replaceAll("/+$", "")+"/analyze-macro"))
-                .header("Content-Type","application/json").timeout(Duration.ofSeconds(45))
-                .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(Map.of("imageBase64",image,"experiment",experiment,"angle",angle)))).build();
+                .version(HttpClient.Version.HTTP_1_1)
+                .header("Content-Type","application/json; charset=utf-8")
+                .header("Accept","application/json")
+                .timeout(Duration.ofSeconds(45))
+                .POST(HttpRequest.BodyPublishers.ofString(json,StandardCharsets.UTF_8)).build();
             HttpResponse<String> res=http.send(req,HttpResponse.BodyHandlers.ofString());
             Map<String,Object> data=mapper.readValue(res.body(),Map.class);
-            if(res.statusCode()!=200)throw new ApiException(503,"宏观分析失败，请稍后重试；原图已保存");
+            if(res.statusCode()!=200) {
+                Object err=data.get("error");
+                if(err==null && data.get("detail")!=null) err=String.valueOf(data.get("detail"));
+                String msg=err!=null?String.valueOf(err):"宏观分析失败（HTTP "+res.statusCode()+"）";
+                throw new ApiException(503,msg+"；原图已保存");
+            }
             return data;
         }catch(ApiException e){throw e;}catch(Exception e){throw new ApiException(503,"断口服务未就绪；原图已保存，可由教师人工复核");}
     }
@@ -35,7 +49,7 @@ public class FractureService {
     @Value("${fracture.service-url:http://127.0.0.1:8090}")
     private String serviceUrl;
 
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final HttpClient http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build();
     private final ObjectMapper mapper = new ObjectMapper();
 
     @SuppressWarnings("unchecked")
@@ -48,9 +62,11 @@ public class FractureService {
             body.put("points", points == null ? List.of() : points);
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(serviceUrl.replaceAll("/+$", "") + "/analyze"))
-                    .header("Content-Type", "application/json")
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .header("Content-Type", "application/json; charset=utf-8")
+                    .header("Accept", "application/json")
                     .timeout(Duration.ofSeconds(60))
-                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body), StandardCharsets.UTF_8))
                     .build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             Map<String, Object> data = mapper.readValue(res.body(), Map.class);

@@ -33,6 +33,12 @@ dify:
 app:
   student-default-password: ${STUDENT_DEFAULT_PASSWORD:123456}
 
+# 万测 TestPilot 试验数据目录（.mdb），试验机保存路径需与此一致或由教师统一部署
+lab:
+  wance:
+    data-dir: ${WANCE_DATA_DIR:D:/yanjing/01 北方工业大学土木力学实验室数字化升级项目/data(1)}
+    default-file: ${WANCE_DEFAULT_FILE:2024-04-25-09-24-49.mdb}
+
 report:
   ocr-command: ${REPORT_OCR_COMMAND:}
   ocr-language: ${REPORT_OCR_LANGUAGE:chi_sim+eng}

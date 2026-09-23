@@ -27,7 +27,8 @@ class WorkflowTest {
         @Bean DataSource dataSource(){return new DriverManagerDataSource("jdbc:h2:mem:workflow;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1","sa","");}
         @Bean JdbcTemplate db(DataSource d){return new JdbcTemplate(d);}
         @Bean DataSourceTransactionManager transactionManager(DataSource d){return new DataSourceTransactionManager(d);}
-        @Bean RunService runs(JdbcTemplate db){return new RunService(db);}
+        @Bean WanceDataService wance(){return new WanceDataService("","2024-04-25-09-24-49.mdb");}
+        @Bean RunService runs(JdbcTemplate db,WanceDataService wance){return new RunService(db,wance);}
         @Bean ReportParser parser(){return new ReportParser();}
         @Bean TeachingService teaching(RunService r,ReportParser p){return new TeachingService(r,p);}
         @Bean ReviewService review(RunService r,TeachingService t){return new ReviewService(r,t,new DifyService(),new FractureService());}
@@ -52,7 +53,6 @@ class WorkflowTest {
     MockMultipartFile csv() {return new MockMultipartFile("file","data.csv","text/csv","位移,力\n0,0\n1,1000\n2,2000".getBytes(StandardCharsets.UTF_8));}
     MockMultipartFile photo() throws Exception {var out=new ByteArrayOutputStream();ImageIO.write(new BufferedImage(500,500,BufferedImage.TYPE_INT_RGB),"png",out);return new MockMultipartFile("file","fracture.png","image/png",out.toByteArray());}
     void archive() throws Exception {
-        var b=body("specimenId","T001");b.put("deviceId","机01");b.put("experimentAt","2026-09-15T02:30:00Z");runs.update(runId,student,b);
         runs.photo(runId,student,photo(),"正面");runs.importData(runId,student,csv(),2,1,0,"N");runs.archive(runId,student,body("unused",0));
     }
     void configure() {var s=new LinkedHashMap<>(teaching.settings());s.put("catalogConfirmed",true);s.put("catalog",List.of(Map.of("id","door","label","开门","points",15),Map.of("id","order","label","纪律","points",10)));teaching.settings(teacher,s);}

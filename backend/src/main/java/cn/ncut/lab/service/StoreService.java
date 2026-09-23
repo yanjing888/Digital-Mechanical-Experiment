@@ -269,8 +269,25 @@ public class StoreService {
         return out;
     }
 
+    public List<Map<String, Object>> listAssignExperiments() {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (String id : ExperimentCatalog.IDS) {
+            List<Map<String, Object>> rows = jdbc.queryForList("SELECT id, name, hours FROM experiments WHERE id = ?", id);
+            if (!rows.isEmpty()) {
+                out.add(rows.get(0));
+            } else {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("id", id);
+                m.put("name", ExperimentCatalog.NAMES.get(id));
+                m.put("hours", 2);
+                out.add(m);
+            }
+        }
+        return out;
+    }
+
     public Map<String, Object> listMeta() {
-        List<Map<String, Object>> experiments = jdbc.queryForList("SELECT id, name, hours FROM experiments ORDER BY id");
+        List<Map<String, Object>> experiments = listAssignExperiments();
         List<Map<String, Object>> teachers = jdbc.queryForList("SELECT name FROM teachers ORDER BY name");
         List<Map<String, Object>> students = listStudents();
         List<String> teacherNames = new ArrayList<>();
@@ -784,7 +801,7 @@ public class StoreService {
     }
 
     public Map<String, Object> loginWithPassword(String account, String password) {
-        String acc = str(account);
+        String acc = str(account).trim();
         String pwd = password == null ? "" : password;
         if (acc.isEmpty() || pwd.isEmpty()) throw new ApiException(400, "请输入账号和密码");
 

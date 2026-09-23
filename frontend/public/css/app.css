@@ -392,8 +392,9 @@
       padding: 1.25rem clamp(1rem, 2.5vw, 2rem) 1.25rem;
     }
     .stage {
-      width: min(1280px, 100%);
-      margin: 0 auto;
+      width: 100%;
+      max-width: none;
+      margin: 0;
       min-height: calc(100% - 0.5rem);
       animation: pageIn var(--dur-slow) var(--ease-out) backwards;
     }
