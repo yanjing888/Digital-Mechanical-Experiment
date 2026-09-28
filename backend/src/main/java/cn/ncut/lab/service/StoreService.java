@@ -606,6 +606,9 @@ public class StoreService {
             m.put("teacher", t.get("teacher"));
             m.put("createdAt", t.get("created_at"));
             m.put("groupIds", groupIds);
+            m.put("students", jdbc.queryForList(
+                    "SELECT DISTINCT rm.sid,rm.name FROM run_members rm JOIN experiment_runs r ON r.id=rm.run_id WHERE r.task_id=? AND r.parent_id IS NULL ORDER BY rm.sid", t.get("id")));
+
             out.add(m);
         }
         return out;
@@ -613,6 +616,7 @@ public class StoreService {
 
     @Transactional
     public Map<String, Object> createTask(String expId, List<String> groupIds, String place, String timeText, String note, String tip, String teacher) {
+        if (!ExperimentCatalog.IDS.contains(expId)) throw new ApiException(400,"请下发“拉伸压缩实验”；钢、铸铁的拉伸与压缩在任务内分别采集。");
         List<Map<String, Object>> exps = jdbc.queryForList("SELECT * FROM experiments WHERE id = ?", expId);
         if (exps.isEmpty()) throw new ApiException(400, "实验不存在");
         if (groupIds == null || groupIds.isEmpty()) throw new ApiException(400, "请选择小组");

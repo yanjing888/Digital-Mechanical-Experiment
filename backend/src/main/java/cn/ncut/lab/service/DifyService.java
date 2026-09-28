@@ -124,6 +124,9 @@ public class DifyService {
         Map<String, Object> raw = runWorkflow(inputs, user != null ? user : (studentSid != null ? studentSid : "teacher"));
         Map<String, Object> outputs = new LinkedHashMap<>();
         Object dataObj = raw.get("data");
+        if (dataObj instanceof Map<?, ?> state && state.get("status") != null && !"succeeded".equals(state.get("status"))) {
+            throw new ApiException(502, "Dify 批阅未成功：" + String.valueOf(state.get("error") != null ? state.get("error") : state.get("status")));
+        }
         if (dataObj instanceof Map<?, ?> dm && dm.get("outputs") instanceof Map<?, ?> om) outputs = (Map<String, Object>) om;
         else if (raw.get("outputs") instanceof Map<?, ?> om) outputs = (Map<String, Object>) om;
 
@@ -184,8 +187,7 @@ public class DifyService {
             }
             if (comment.isBlank() && !text.isBlank()) comment = text.length() > 800 ? text.substring(0, 800) : text;
         }
-        if (score == null) score = 40.0;
-        if (comment.isBlank()) comment = "AI 评阅结果不完整，请教师人工核阅后给分。";
+        if (score == null || comment.isBlank()) throw new ApiException(502, "Dify 未返回有效评分和评语，请检查工作流输出 score / comment 后重试。");
         Map<String, Object> r = new LinkedHashMap<>();
         r.put("score", score);
         r.put("comment", comment);

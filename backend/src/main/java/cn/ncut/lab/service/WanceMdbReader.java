@@ -47,7 +47,18 @@ public final class WanceMdbReader {
         try (Database db = DatabaseBuilder.open(mdb.toFile())) {
             if (!db.getTableNames().contains("OriginalData")) throw new ApiException(400, "不是可识别的万测数据文件（缺少 OriginalData 表）");
             Table table = db.getTable("OriginalData");
-            for (Row row : table) {
+            List<Row> rows = new ArrayList<>();
+            for (Row row : table) rows.add(row);
+            // Access physical page order is not acquisition order (including after edits).
+            String orderKey = rows.stream().allMatch(r -> finite(r.get("PlayTime"))) ? "PlayTime"
+                    : rows.stream().allMatch(r -> finite(r.get("ID"))) ? "ID" : null;
+            if (orderKey == null) throw new ApiException(400,"设备数据缺少有效采集时间或序号，无法确定曲线顺序");
+            Set<Integer> tests = new HashSet<>();
+            for (Row row : rows) { Integer number=asInt(row.get("TestNo")); if(number!=null) tests.add(number); }
+            if(tests.size()>1) throw new ApiException(400,"设备文件包含多次试验，请导出单次试验数据后采集");
+            rows.sort(Comparator.comparingDouble((Row row) -> asDouble(row.get(orderKey)))
+                    .thenComparingDouble(row -> finite(row.get("ID")) ? asDouble(row.get("ID")) : 0));
+            for (Row row : rows) {
                 Double load = asDouble(row.get("LoadValue"));
                 Double pos = asDouble(row.get("PositionValue"));
                 if (load == null || pos == null || !Double.isFinite(load) || !Double.isFinite(pos)) continue;
@@ -102,6 +113,9 @@ public final class WanceMdbReader {
         if (v == null) return null;
         if (v instanceof Number n) return n.doubleValue();
         try { return Double.parseDouble(v.toString()); } catch (Exception e) { return null; }
+    }
+    private static boolean finite(Object value) {
+        Double number=asDouble(value);return number!=null && Double.isFinite(number);
     }
 
     static Integer asInt(Object v) {

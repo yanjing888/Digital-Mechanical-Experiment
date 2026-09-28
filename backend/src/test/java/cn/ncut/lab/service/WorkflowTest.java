@@ -49,6 +49,17 @@ class WorkflowTest {
         db.update("INSERT INTO students(sid,name,task_id,group_id) VALUES('s1','学生甲','task','g1'),('s2','学生乙','task','g1'),('s3','学生丙','task','g2')");
         runs.provision("task");runId=str(runs.runs(student).get(0).get("id"));
     }
+    @Test void dispatchHistoryKeepsOriginalStudentsAfterRegrouping() {
+        db.execute("ALTER TABLE tasks ADD created_at VARCHAR(40)");
+        db.update("UPDATE students SET group_id='new-group',task_id='new-task' WHERE sid='s1'");
+        db.update("INSERT INTO experiment_runs(id,task_id,group_id,parent_id,payload,created_at) VALUES('retake','task','g1',?,'{}','2026-09-28')",runId);
+        db.update("INSERT INTO run_members(run_id,sid,name) VALUES('retake','extra','重做新增学生')");
+        var task = new StoreService(db).listTasks().get(0);
+        @SuppressWarnings("unchecked") var members = (List<Map<String,Object>>) task.get("students");
+        assertEquals(List.of("s1","s2","s3"), members.stream().map(m -> m.get("sid")).toList());
+        assertEquals("学生甲", members.get(0).get("name"));
+    }
+
     Map<String,Object> body(String key,Object value) {var b=new LinkedHashMap<String,Object>();b.put("revision",runs.detail(runId,teacher).get("revision"));b.put(key,value);return b;}
     MockMultipartFile csv() {return new MockMultipartFile("file","data.csv","text/csv","位移,力\n0,0\n1,1000\n2,2000".getBytes(StandardCharsets.UTF_8));}
     MockMultipartFile photo() throws Exception {var out=new ByteArrayOutputStream();ImageIO.write(new BufferedImage(500,500,BufferedImage.TYPE_INT_RGB),"png",out);return new MockMultipartFile("file","fracture.png","image/png",out.toByteArray());}
@@ -61,7 +72,6 @@ class WorkflowTest {
             doc.createParagraph().createRun().setText("实验分析与结论："+"根据实验数据分析材料受力过程并结合试件断口的宏观特征说明实验观察与结果。".repeat(8));doc.write(out);
             teaching.uploadReport(runId,a,new MockMultipartFile("file","报告.docx","application/octet-stream",out.toByteArray()));
         }
-        teaching.observation(runId,a,Map.of("features","试件局部变细，需结合侧面照片核实","judgment","uncertain"));
         teaching.submit(runId,a,Map.of("requestId",key));
     }
     @Test void photoBeforeDataAndArchiveGuards() throws Exception {
@@ -70,6 +80,29 @@ class WorkflowTest {
         assertEquals("pending",runs.runs(outsider).get(0).get("status"));
         archive();var r=runs.detail(runId,student);assertEquals(2.0,map(r.get("data")).get("maxF"));assertTrue((Boolean)r.get("archived"));
         assertThrows(ApiException.class,()->runs.importData(runId,student,csv(),2,1,0,"N"));
+    }
+    @Test void combinedTaskKeepsFourTrialsSeparateAndSubmitsOneReport() throws Exception {
+        Map<String,Object> original=runs.load(runId,student,false);
+        original.put("expId",ExperimentCatalog.COMBINED);original.put("expName","拉伸压缩实验");
+        db.update("UPDATE experiment_runs SET payload=? WHERE id=?",JsonUtil.write(original),runId);
+        try {
+            for(String trial:ExperimentCatalog.TRIAL_IDS) {
+                var request=new org.springframework.mock.web.MockHttpServletRequest();request.setParameter("trial",trial);
+                org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(new org.springframework.web.context.request.ServletRequestAttributes(request));
+                assertNull(runs.detail(runId,student).get("data"));
+                runs.importData(runId,student,csv(),2,1,0,"N");runs.photo(runId,student,photo(),"正面");
+                runs.update(runId,student,Map.of("revision",runs.detail(runId,student).get("revision"),"specimenId",trial));
+                if(!trial.equals(ExperimentCatalog.TRIAL_IDS.get(3)))assertThrows(ApiException.class,()->runs.archive(runId,student,body("unused",0)));
+            }
+            var detail=runs.detail(runId,student);
+            assertEquals(4,list(detail.get("trialItems")).size());
+            for(var item:list(detail.get("trialItems")))assertEquals(item.get("id"),item.get("specimenId"));
+            assertEquals(4,list(detail.get("trialItems")).stream().map(t->map(t.get("data")).get("fileId")).distinct().count());
+            runs.archive(runId,student,body("unused",0));submit(student,"combined-report");
+            var reports=list(runs.detail(runId,student).get("reports"));assertEquals(1,reports.size());
+            assertEquals(4,map(map(reports.get(0).get("runSnapshot")).get("trials")).size());
+            assertThrows(ApiException.class,()->runs.importData(runId,student,csv(),2,1,0,"N"));
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
     }
     @Test void foreignRunAndReportFilesAreProtected() throws Exception {
         assertEquals(403,assertThrows(ApiException.class,()->runs.detail(runId,outsider)).getStatus());

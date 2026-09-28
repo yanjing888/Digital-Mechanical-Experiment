@@ -5,6 +5,6 @@ export function unmountWorkflow() { if (app) app.unmount(); app = null }
 export function mountWorkflow(root, page, snapshot) {
   unmountWorkflow()
   root.innerHTML = ''
-  app = createApp(Workspace, { page, teacher: snapshot.role === 'teacher', sid: snapshot.student?.sid || '' })
+  app = createApp(Workspace, { page, teacher: snapshot.role === 'teacher', sid: snapshot.student?.sid || '', taskId: snapshot.student?.taskId || '' })
   app.mount(root)
 }

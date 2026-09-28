@@ -156,7 +156,7 @@ public class DbInitializer implements CommandLineRunner {
         }
     }
 
-    /** 保证下发下拉始终为固定的四个实验项目（已有库也会 upsert 名称）。 */
+    /** 下发统一实验项目；旧项目保留，供历史任务读取。 */
     private void ensureStandardExperiments() {
         for (String id : ExperimentCatalog.IDS) {
             jdbc.update(

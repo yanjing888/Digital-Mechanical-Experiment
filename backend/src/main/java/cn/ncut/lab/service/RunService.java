@@ -40,13 +40,17 @@ public class RunService {
         List<Map<String,Object>> rows=db.queryForList("SELECT * FROM experiment_runs WHERE id=?"+(lock?" FOR UPDATE":""),runId);
         if(rows.isEmpty()) throw new ApiException(404,"实验记录不存在");
         Map<String,Object> r=JsonUtil.readMap(str(rows.get(0).get("payload")),new LinkedHashMap<>());
-        r.put("id",runId); r.put("revision",rows.get(0).get("revision")); return r;
+        r.put("id",runId); r.put("revision",rows.get(0).get("revision"));
+        var attributes = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        String trial = attributes instanceof org.springframework.web.context.request.ServletRequestAttributes request ? request.getRequest().getParameter("trial") : null;
+        TrialRecords.project(r, trial);
+        return r;
     }
     void save(Map<String,Object> run,Actor actor,String action) {
         List<Map<String,Object>> audit=list(run.get("audit"));
         audit.add(Map.of("at",now(),"by",actor.id(),"action",action)); run.put("audit",audit);
         int revision=((Number)run.getOrDefault("revision",0)).intValue();
-        int updated=db.update("UPDATE experiment_runs SET payload=?,revision=revision+1 WHERE id=? AND revision=?",JsonUtil.write(run),run.get("id"),revision);
+        int updated=db.update("UPDATE experiment_runs SET payload=?,revision=revision+1 WHERE id=? AND revision=?",JsonUtil.write(TrialRecords.stored(run)),run.get("id"),revision);
         if(updated!=1) throw new ApiException(409,"记录已更新，请刷新后重试"); run.put("revision",revision+1);
     }
     void mutable(Map<String,Object> run) { if(Boolean.TRUE.equals(run.get("archived"))) throw new ApiException(409,"操作记录已提交；请由教师退回后修改"); }
@@ -227,10 +231,18 @@ public class RunService {
             if(!a.teacher()&&!a.id().equals(row.get("sid")))continue;
             Map<String,Object> report=JsonUtil.readMap(str(row.get("payload")),new LinkedHashMap<>());
             report.put("id",row.get("id")); report.put("sid",row.get("sid")); report.put("version",row.get("version")); report.put("submittedAt",row.get("submitted_at"));
-            if(!a.teacher()) { report.remove("similarity"); report.remove("ai"); report.remove("foreignDataEvidence"); }
+            if(!a.teacher()) {
+                report.remove("similarity"); report.remove("ai"); report.remove("foreignDataEvidence");
+                for(Object trial : map(map(report.get("runSnapshot")).get("trials")).values()) { map(trial).remove("analysis"); map(trial).remove("reference"); }
+            }
             reports.add(report);
         }
         r.put("reports",reports);
+        if (TrialRecords.combined(r)) {
+            r.put("trialItems", TrialRecords.items(r));
+            r.remove("trials");
+            if (!a.teacher()) for (Map<String,Object> trial : list(r.get("trialItems"))) { trial.remove("analysis"); trial.remove("reference"); }
+        }
         if(!a.teacher()) {
             r.remove("analysis"); r.remove("reference"); r.remove("operationAi"); r.remove("audit");
             Map<String,Object> observations=map(r.get("observations"));
@@ -337,8 +349,17 @@ public class RunService {
     public Map<String,Object> importWanceData(String id,Actor a,String fileName) {
         Map<String,Object> r=load(id,a,true); mutable(r);
         try {
-            Path mdb=wance.resolve(fileName);
+            Path mdb=TrialRecords.combined(r) && (fileName==null || fileName.isBlank())
+                    ? WanceMdbReader.latestMdb(wance.directory()) : wance.resolve(fileName);
             byte[] content=Files.readAllBytes(mdb);
+            if (TrialRecords.combined(r)) {
+                for (Map<String,Object> trial : TrialRecords.items(r)) {
+                    if (Objects.equals(trial.get("id"),r.get("trialId"))) continue;
+                    String previousFile=str(map(trial.get("data")).get("fileId"));
+                    if (!previousFile.isBlank() && Arrays.equals(content,(byte[])getFile(previousFile,a).get("contents")))
+                        throw new ApiException(409,"等待新的试验数据：设备最新数据已用于“"+trial.get("name")+"”，请完成当前试验后重新读取。");
+                }
+            }
             Map<String,Object> parsed=new LinkedHashMap<>(WanceMdbReader.parse(mdb));
             String fid=file(id,a,"data",new MockBytesMultipart(mdb.getFileName().toString(),content),content,"application/x-msaccess","","ready");
             parsed.put("fileId",fid);parsed.put("fileName",mdb.getFileName().toString());parsed.put("importedAt",now());
@@ -364,8 +385,9 @@ public class RunService {
         if(str(r.get("experimentAt")).isBlank()) r.put("experimentAt",now());
         if(list(r.get("photos")).isEmpty())throw new ApiException(400,"请先采集断口照片");
         if(map(r.get("data")).isEmpty())throw new ApiException(400,"断口已保存；请补齐本次原设备数据后归档");
+        if (TrialRecords.combined(r)) TrialRecords.requireComplete(r);
         r.put("archived",true);r.put("archivedAt",now());r.put("status","archived");save(r,a,"提交实验操作记录");
-        db.update("INSERT INTO run_archives(id,run_id,payload,created_at) VALUES(?,?,?,?)",id(),id,JsonUtil.write(r),now());
+        db.update("INSERT INTO run_archives(id,run_id,payload,created_at) VALUES(?,?,?,?)",id(),id,JsonUtil.write(TrialRecords.stored(r)),now());
         return detail(id,a);
     }
 }

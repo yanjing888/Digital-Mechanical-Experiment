@@ -70,12 +70,12 @@ public class ReviewService {
         for(var photo:photos) {
             Map<String,Object> f=runs.getFile(str(photo.get("id")),a);
             String image="data:"+f.get("mime")+";base64,"+Base64.getEncoder().encodeToString((byte[])f.get("contents"));
-            Map<String,Object> result=fracture.analyzeMacro(image,str(r.get("expId")),str(photo.get("angle")));
+            Map<String,Object> result=fracture.analyzeMacro(image,str(r.getOrDefault("trialId",r.get("expId"))),str(photo.get("angle")));
             results.add(Map.of("photoId",photo.get("id"),"angle",photo.get("angle"),"result",result));
         }
-        Map<String,Object> curveDetail=FractureSummary.fromCurve(map(r.get("data")),str(r.get("expId")));
+        Map<String,Object> curveDetail=FractureSummary.fromCurve(map(r.get("data")),str(r.getOrDefault("trialId",r.get("expId"))));
         Map<String,Object> photoDetail=FractureSummary.fromPhotos(results);
-        Map<String,Object> summary=FractureSummary.build(str(r.get("expId")),map(r.get("data")),results);
+        Map<String,Object> summary=FractureSummary.build(str(r.getOrDefault("trialId",r.get("expId"))),map(r.get("data")),results);
         summary.put("at",now());
         r.put("fractureSummary",summary);
         Map<String,Object> analysis=new LinkedHashMap<>();
@@ -139,6 +139,14 @@ public class ReviewService {
         Map<String,Object> context=new LinkedHashMap<>();
         Map<String,Object> data=new LinkedHashMap<>(map(map(report.get("runSnapshot")).get("data")));
         if(data.isEmpty()) {data.put("note","历史提交未保存完整结果摘要，请对照提交时关联的原始数据文件人工复核");data.put("fileId",map(report.get("runSnapshot")).get("dataFileId"));}
+        Map<String,Object> trialContext=new LinkedHashMap<>();
+        for(var entry:map(map(report.get("runSnapshot")).get("trials")).entrySet()) {
+            Map<String,Object> trial=new LinkedHashMap<>(map(entry.getValue()));
+            Map<String,Object> trialData=new LinkedHashMap<>(map(trial.get("data")));trialData.remove("points");trial.put("data",trialData);
+            trial.put("name",ExperimentCatalog.NAMES.get(entry.getKey()));trialContext.put(entry.getKey(),trial);
+        }
+        context.put("trials",trialContext);
+        if(!trialContext.isEmpty())context.put("reportScope","本报告为拉伸压缩实验综合报告，包含钢的拉伸、铸铁的拉伸、钢的压缩、铸铁的压缩。请分别核对四项结果，给出一份综合评语和一个综合评分。压缩试件可能仅发生变形，没有断口，不得据此判为报告缺失。");
         context.put("data",data);context.put("foreignDataEvidence",report.getOrDefault("foreignDataEvidence",List.of()));
         context.put("observation",report.get("observation"));context.put("macroAnalysis",r.getOrDefault("analysis",Map.of()));
         context.put("reference",r.getOrDefault("reference",Map.of("type","uncertain","note","尚无额外人工参考")));

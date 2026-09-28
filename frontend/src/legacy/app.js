@@ -28,7 +28,7 @@ export function bootApp() {
     acqStartedAt: null,
     ruptureHinted: false,
     labView: null, // 'acq' | 'frac' — 采集完成后在步骤间切换
-    assignDraft: { expId: 'STEEL_TENS', timeText: '', place: '', note: '', tip: '' },
+    assignDraft: { expId: 'TENSION_COMPRESSION', timeText: '', place: '', note: '', tip: '' },
     fracStepId: 'original',
     fracBusy: false,
     fracCamStream: null,
@@ -92,12 +92,7 @@ export function bootApp() {
   }
 
   /** 教师下发任务：固定四个实验项目（与后端 ExperimentCatalog 一致） */
-  var ASSIGN_EXPERIMENTS = [
-    { id: 'STEEL_TENS', name: '钢的拉伸', hours: 2 },
-    { id: 'CAST_TENS', name: '铸铁的拉伸', hours: 2 },
-    { id: 'STEEL_COMP', name: '钢的压缩', hours: 2 },
-    { id: 'CAST_COMP', name: '铸铁的压缩', hours: 2 }
-  ];
+  var ASSIGN_EXPERIMENTS = [{ id: 'TENSION_COMPRESSION', name: '拉伸压缩实验', hours: 2 }];
 
   function teacherWorkflowGuide(step) {
     var steps = [
@@ -920,54 +915,20 @@ export function bootApp() {
         + esc(e.name) + '</option>';
     }).join('');
 
-    var taskRows = tasks.length ? tasks.map(function (t) {
-      var gnames = (t.groupIds || []).map(function (id) {
-        var g = groups.find(function (x) { return x.id === id; });
-        return g ? g.name : id;
-      }).join('、');
-      return '<tr><td>' + esc(t.expName) + '</td><td>' + esc(gnames) + '</td><td>' + esc(t.timeText || '—') + '</td><td>' + esc(t.place || '—') + '</td><td class="sub">' + esc((t.createdAt || '').slice(0, 16).replace('T', ' ')) + '</td></tr>';
-    }).join('') : '<tr><td colspan="5" class="empty">暂无任务</td></tr>';
-
-    var asideTaskCards = tasks.length ? tasks.map(function (t, i) {
-      var gnames = (t.groupIds || []).map(function (id) {
-        var g = groups.find(function (x) { return x.id === id; });
-        return g ? g.name : id;
-      }).join('、');
-      return '<div class="task-mini-card" style="animation-delay:' + (i * .05) + 's">'
-        + '<div class="task-mini-head">'
-        +   '<span class="tag">' + esc(t.expName) + '</span>'
-        +   '<span class="task-mini-date sub">' + esc((t.createdAt || '').slice(5, 16).replace('T', ' ')) + '</span>'
-        + '</div>'
-        + '<div class="task-mini-body">'
-        +   '<div class="task-mini-row"><span class="ico">👥</span><span>' + esc(gnames) + '</span></div>'
-        +   '<div class="task-mini-row"><span class="ico">⏰</span><span>' + esc(t.timeText || '—') + '</span></div>'
-        +   '<div class="task-mini-row"><span class="ico">📍</span><span>' + esc(t.place || '—') + '</span></div>'
-        + '</div>'
-        + '</div>';
-    }).join('') : '<div class="empty-panel" style="padding:1.5rem 1rem"><div class="empty-panel-icon">📋</div><p>暂无已下发任务</p></div>';
+    var taskRows = tasks.map(function (t) {
+      var members = t.students || [];
+      var names = members.map(function (m) { return m.name + ' ' + m.sid; }).join(' ');
+      return '<tr data-task-search="' + esc([t.expName, t.timeText, t.place, t.note, names].join(' ').toLowerCase()) + '">'
+        + '<td><strong>' + esc(t.expName) + '</strong><div class="sub">' + esc(t.id) + '</div></td>'
+        + '<td><details class="dispatch-students"><summary>' + members.length + ' 位学生 · 查看名单</summary><div class="dispatch-roster">'
+        + (members.length ? members.map(function (m) { return '<div><strong>' + esc(m.name) + '</strong><span>' + esc(m.sid) + '</span></div>'; }).join('') : '<p class="sub">暂无下发时的学生记录</p>') + '</div></details></td>'
+        + '<td>' + esc(t.timeText || '—') + '</td><td>' + esc(t.place || '—') + '</td><td>' + esc(t.note || '—') + '</td>'
+        + '<td>' + esc((t.createdAt || '').slice(0, 16).replace('T', ' ')) + '</td></tr>';
+    }).join('');
 
     return ''
       + pageHero('教师工作台', '下发实验任务', '')
-      + '<div class="dashboard-stats">'
-      +   '<div class="dash-stat-card dash-stat-1">'
-      +     '<div class="ds-icon">👨‍🎓</div>'
-      +     '<div class="ds-info"><span class="ds-n">' + students.length + '</span><span class="ds-l">学生总数</span></div>'
-      +   '</div>'
-      +   '<div class="dash-stat-card dash-stat-2">'
-      +     '<div class="ds-icon">⏳</div>'
-      +     '<div class="ds-info"><span class="ds-n">' + ungrouped.length + '</span><span class="ds-l">待分组</span></div>'
-      +   '</div>'
-      +   '<div class="dash-stat-card dash-stat-3">'
-      +     '<div class="ds-icon">👥</div>'
-      +     '<div class="ds-info"><span class="ds-n">' + groups.length + '</span><span class="ds-l">已建小组</span></div>'
-      +   '</div>'
-      +   '<div class="dash-stat-card dash-stat-4">'
-      +     '<div class="ds-icon">✅</div>'
-      +     '<div class="ds-info"><span class="ds-n">' + readyGroups.length + '</span><span class="ds-l">可下发组</span></div>'
-      +   '</div>'
-      + '</div>'
-
-      + '<div class="dashboard-grid">'
+      + '<div class="dashboard-grid assignment-layout">'
       // 左侧主区：实验安排 + 分组管理
       +   '<div class="dash-main">'
       +     '<div class="card dash-card">'
@@ -980,6 +941,7 @@ export function bootApp() {
       +       '</div>'
       +       '<div class="assign-fields grid-2">'
       +         '<div><label class="field-label">实验项目</label><select id="as-exp" class="inp">' + expOpts + '</select></div>'
+      +         '<div class="sub" style="grid-column:1/-1;padding:12px 0">本实验包含四个试验子项：钢的拉伸、铸铁的拉伸、钢的压缩、铸铁的压缩。统一下发任务，分别采集数据，每位学生提交一份综合实验报告。</div>'
       +         '<div><label class="field-label">实验时间</label><input id="as-time" class="inp" value="' + esc(draft.timeText || '') + '" placeholder="时间" /></div>'
       +         '<div><label class="field-label">地点</label><input id="as-place" class="inp" value="' + esc(draft.place || '') + '" placeholder="地点" /></div>'
       +         '<div><label class="field-label">备注</label><input id="as-note" class="inp" value="' + esc(draft.note || '') + '" placeholder="备注" /></div>'
@@ -1020,17 +982,10 @@ export function bootApp() {
       +     '</div>'
       +   '</div>'
 
-      // 右侧边栏：已下发任务
-      +   '<div class="dash-aside">'
-      +     '<div class="card dash-card aside-card">'
-      +       '<div class="dash-card-head">'
-      +         '<h3 class="dash-card-title"><span class="title-dot"></span>已下发任务</h3>'
-      +         '<span class="tag">' + tasks.length + ' 个</span>'
-      +       '</div>'
-      +       '<div class="task-list-scroll">' + asideTaskCards + '</div>'
-      +     '</div>'
-      +   '</div>'
-      + '</div>';
+      + '</div>'
+      + '<section class="card dash-card dispatch-history"><div class="dash-card-head"><div><h3 class="dash-card-title">已下发任务</h3><p class="sub">按下发记录查看实验安排与学生名单</p></div><label class="dispatch-search">搜索记录<input id="dispatch-search" class="inp" placeholder="实验、学生姓名 / 学号、地点、备注" /></label></div>'
+      + '<div class="dispatch-table-wrap"><table class="dispatch-table"><thead><tr><th>实验项目</th><th>学生列表</th><th>实验时间</th><th>地点</th><th>备注</th><th>下发时间</th></tr></thead><tbody>' + taskRows + '</tbody></table></div>'
+      + '<p id="dispatch-empty" class="empty-soft"' + (tasks.length ? ' hidden' : '') + '>暂无匹配的下发记录</p><p class="sub" id="dispatch-count">共 ' + tasks.length + ' 条下发记录</p></section>';
   }
 
   function pageTeacherGrade() {
@@ -1156,7 +1111,7 @@ export function bootApp() {
           ? '<button type="button" class="btn btn-primary btn-lg" id="btn-go-lab">继续实验</button>'
           : '<button type="button" class="btn btn-primary btn-lg" id="btn-go-report">查看报告</button>');
     var nextHint = s.status === 'assigned'
-      ? '进入现场实验，完成联锁启动与数据采集。'
+      ? '进入现场实验，完成数据采集、断口观察与操作记录。'
       : (s.status === 'in_lab'
           ? '在「实验」页继续采集或断口观察。'
           : (s.status === 'lab_done'
@@ -1177,7 +1132,7 @@ export function bootApp() {
       + '<div class="stu-hero-card">'
       +   '<div class="stu-hero-left">'
       +     '<div class="stu-exp-badge">实验项目</div>'
-      +     '<h2 class="stu-exp-name">' + esc(s.expName) + '实验</h2>'
+      +     '<h2 class="stu-exp-name">' + esc(s.expName) + '</h2>'
       +     '<div class="stu-exp-meta">'
       +       '<span class="sem-item"><span class="ico">⏰</span>' + esc(s.timeText || '待定') + '</span>'
       +       '<span class="sem-item"><span class="ico">📍</span>' + esc(s.place || '待定') + '</span>'
@@ -1486,6 +1441,10 @@ export function bootApp() {
   }
 
   async function showPage(p) {
+    if (ui.snap && ui.snap.role !== 'teacher' && ['s-home', 's-lab', 's-report'].indexOf(p) >= 0) {
+      try { await refreshSession(); }
+      catch (e) { await showAlert(e.message || '无法获取最新实验任务，请重试。'); return; }
+    }
     stopAcq();
     unmountWorkflow();
     setPage(p);
@@ -1858,6 +1817,16 @@ export function bootApp() {
         };
       });
 
+      var historySearch = document.getElementById('dispatch-search');
+      if (historySearch) historySearch.oninput = function () {
+        var query = historySearch.value.trim().toLowerCase(), count = 0;
+        document.querySelectorAll('[data-task-search]').forEach(function (row) {
+          row.hidden = !row.getAttribute('data-task-search').includes(query);
+          if (!row.hidden) count++;
+        });
+        document.getElementById('dispatch-empty').hidden = count > 0;
+        document.getElementById('dispatch-count').textContent = '共 ' + count + ' 条下发记录';
+      };
       var btn = document.getElementById('btn-dispatch');
       if (btn) btn.onclick = async function () {
         saveAssignDraft();
@@ -1894,13 +1863,7 @@ export function bootApp() {
 
     if (p === 's-home') {
       var b1 = document.getElementById('btn-start-lab');
-      if (b1) b1.onclick = async function () {
-        try {
-          var r = await api.labStart();
-          ui.snap.student = r.student;
-          showPage('s-lab');
-        } catch (e) { await showAlert(e.message); }
-      };
+      if (b1) b1.onclick = function () { showPage('s-lab'); };
       var b2 = document.getElementById('btn-go-lab');
       if (b2) b2.onclick = function () { showPage('s-lab'); };
       var b3 = document.getElementById('btn-go-report');

@@ -136,7 +136,7 @@ public class TeachingService {
         List<Map<String,Object>> old=runs.jdbc().queryForList("SELECT payload FROM report_versions WHERE run_id=? AND sid=?",id,a.id());
         for(var row:old)if(requestId.equals(JsonUtil.readMap(str(row.get("payload")),Map.of()).get("requestId")))return runs.detail(id,a);
         canSubmit(r,a);Map<String,Object> draft=map(map(r.get("drafts")).get(a.id()));if(draft.isEmpty())throw new ApiException(400,"请先上传报告文件");
-        Map<String,Object> observation=map(map(r.get("observations")).get(a.id()));if(observation.isEmpty())throw new ApiException(400,"请先保存个人断口观察与判断");
+        Map<String,Object> observation=map(map(r.get("observations")).get(a.id()));
         Map<String,Object> f=runs.getFile(str(draft.get("fileId")),a);int version=old.size()+1;
         Map<String,Object> report=new LinkedHashMap<>(draft);report.remove("textPreview");report.put("observation",observation);report.put("requestId",requestId);report.put("sha256",f.get("sha256"));
         Map<String,Object> submittedData=new LinkedHashMap<>(map(r.get("data")));submittedData.remove("points");
@@ -147,6 +147,7 @@ public class TeachingService {
         Map<String,Object> fracture=map(r.get("fractureSummary"));
         snap.put("fractureJudgment",fracture.get("judgment"));snap.put("fractureLabel",fracture.get("label"));
         snap.put("fractureReportBasis",fracture.get("reportBasis"));
+        if (TrialRecords.combined(r)) snap.put("trials", TrialRecords.stored(r).get("trials"));
         report.put("runSnapshot",snap);
         List<String> missing=new ArrayList<>();String text=str(f.get("extracted"));
         if("ready".equals(f.get("parse_status")))for(Object section:(List<?>)settings().getOrDefault("requiredSections",List.of()))if(!text.replaceAll("\\s","").contains(str(section).replaceAll("\\s","")))missing.add(str(section));
