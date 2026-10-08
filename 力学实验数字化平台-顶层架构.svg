@@ -1,0 +1,234 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="1280" viewBox="0 0 1480 1280" role="img" aria-labelledby="title desc">
+  <title id="title">力学实验数字化平台顶层架构</title>
+  <desc id="desc">依据项目原型：应用端、核心能力、模块化实验能力、配套硬件四层；各层模块按教师/学生闭环与软硬协同细化。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L8,3 z" fill="#59636E"/>
+    </marker>
+    <style>
+      .font { font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif; fill: #263238; }
+      .page-title { font-size: 26px; font-weight: 700; fill: #1F2937; }
+      .group-title { font-size: 20px; font-weight: 650; }
+      .card-title { font-size: 16px; font-weight: 600; }
+      .item { font-size: 13.5px; font-weight: 400; }
+      .hint { font-size: 12.5px; fill: #546E7A; }
+      .flow { font-size: 13px; fill: #455A64; }
+    </style>
+  </defs>
+
+  <rect width="1480" height="1280" fill="#FAFBFC"/>
+  <text x="740" y="42" text-anchor="middle" class="font page-title">力学实验数字化平台 · 顶层架构</text>
+  <text x="740" y="68" text-anchor="middle" class="font hint">主线闭环：任务下发 → 现场联锁采集 → 断口识别 → 组报告确认 → 个人报告 → 评阅打分（物小智全程辅助）</text>
+
+  <!-- ========== L1 应用端 ========== -->
+  <rect x="24" y="88" width="1432" height="248" rx="22" fill="#E8EDF3" stroke="#486581" stroke-width="2.4" stroke-dasharray="11 6"/>
+  <text x="740" y="120" text-anchor="middle" class="font group-title">应用端（角色入口）</text>
+
+  <!-- 教师端 -->
+  <rect x="48" y="140" width="330" height="172" rx="14" fill="#FFFFFF" stroke="#71869C" stroke-width="1.6"/>
+  <rect x="48" y="140" width="330" height="40" rx="14" fill="#D9E4F0"/>
+  <rect x="48" y="164" width="330" height="16" fill="#D9E4F0"/>
+  <text x="213" y="166" text-anchor="middle" class="font card-title">教师端 Web 看板</text>
+  <text x="68" y="198" class="font item">· 按组下发实验任务</text>
+  <text x="68" y="222" class="font item">· 任务进度与提交概览</text>
+  <text x="68" y="246" class="font item">· 组报告 / 个人报告评阅</text>
+  <text x="68" y="270" class="font item">· 打分评语与成绩确认</text>
+  <text x="68" y="294" class="font item">· 物小智：分析 / 查重 / 评分建议</text>
+
+  <!-- 学生端 -->
+  <rect x="400" y="140" width="330" height="172" rx="14" fill="#FFFFFF" stroke="#71869C" stroke-width="1.6"/>
+  <rect x="400" y="140" width="330" height="40" rx="14" fill="#D9E4F0"/>
+  <rect x="400" y="164" width="330" height="16" fill="#D9E4F0"/>
+  <text x="565" y="166" text-anchor="middle" class="font card-title">学生端实验终端</text>
+  <text x="420" y="198" class="font item">· 我的实验任务与开做条件</text>
+  <text x="420" y="222" class="font item">· 现场做实验（联锁→采集→断口）</text>
+  <text x="420" y="246" class="font item">· 组报告现场确认提交</text>
+  <text x="420" y="270" class="font item">· 个人报告撰写 / 附件上传</text>
+  <text x="420" y="294" class="font item">· 物小智：指导 / 草稿 / 数据解读</text>
+
+  <!-- 实验室控制端 -->
+  <rect x="752" y="140" width="330" height="172" rx="14" fill="#FFFFFF" stroke="#71869C" stroke-width="1.6"/>
+  <rect x="752" y="140" width="330" height="40" rx="14" fill="#D9E4F0"/>
+  <rect x="752" y="164" width="330" height="16" fill="#D9E4F0"/>
+  <text x="917" y="166" text-anchor="middle" class="font card-title">实验室控制端</text>
+  <text x="772" y="198" class="font item">· 设备状态与联锁指示</text>
+  <text x="772" y="222" class="font item">· 采集启停 / 急停联动</text>
+  <text x="772" y="246" class="font item">· 力—位移实时曲线监视</text>
+  <text x="772" y="270" class="font item">· 断口拍摄触发与预览</text>
+  <text x="772" y="294" class="font item">· 本机异常告警与恢复</text>
+
+  <!-- 管理后台 -->
+  <rect x="1104" y="140" width="328" height="172" rx="14" fill="#FFFFFF" stroke="#71869C" stroke-width="1.6"/>
+  <rect x="1104" y="140" width="328" height="40" rx="14" fill="#D9E4F0"/>
+  <rect x="1104" y="164" width="328" height="16" fill="#D9E4F0"/>
+  <text x="1268" y="166" text-anchor="middle" class="font card-title">平台管理后台</text>
+  <text x="1124" y="198" class="font item">· 账号角色与权限隔离</text>
+  <text x="1124" y="222" class="font item">· 实验项目 / 模块配置</text>
+  <text x="1124" y="246" class="font item">· 设备接入与校准参数</text>
+  <text x="1124" y="270" class="font item">· 数据归档 / 备份审计</text>
+  <text x="1124" y="294" class="font item">· 系统参数与版本管理</text>
+
+  <line x1="740" y1="336" x2="740" y2="362" stroke="#59636E" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ========== L2 核心能力 ========== -->
+  <rect x="24" y="368" width="1432" height="292" rx="22" fill="#E9E4F2" stroke="#7057A3" stroke-width="2.4" stroke-dasharray="11 6"/>
+  <text x="740" y="400" text-anchor="middle" class="font group-title">实验数字化核心能力</text>
+
+  <!-- 流程管理 -->
+  <rect x="48" y="420" width="330" height="214" rx="14" fill="#FFFFFF" stroke="#8068AB" stroke-width="1.6"/>
+  <rect x="48" y="420" width="330" height="40" rx="14" fill="#DDD4EE"/>
+  <rect x="48" y="444" width="330" height="16" fill="#DDD4EE"/>
+  <text x="213" y="446" text-anchor="middle" class="font card-title">实验流程管理</text>
+  <text x="68" y="478" class="font item">· 任务编排与小组绑定</text>
+  <text x="68" y="502" class="font item">· 实验状态机推进</text>
+  <text x="68" y="526" class="font item">· 开做条件 / 步骤校验</text>
+  <text x="68" y="550" class="font item">· 组员到场与操作分工</text>
+  <text x="68" y="574" class="font item">· 提交门禁（全员确认）</text>
+  <text x="68" y="598" class="font item">· 成绩状态锁定发布</text>
+  <text x="68" y="618" class="font hint">状态：已下发→实验中→待报告→已评阅</text>
+
+  <!-- 设备采集 -->
+  <rect x="400" y="420" width="330" height="214" rx="14" fill="#FFFFFF" stroke="#8068AB" stroke-width="1.6"/>
+  <rect x="400" y="420" width="330" height="40" rx="14" fill="#DDD4EE"/>
+  <rect x="400" y="444" width="330" height="16" fill="#DDD4EE"/>
+  <text x="565" y="446" text-anchor="middle" class="font card-title">设备接入采集</text>
+  <text x="420" y="478" class="font item">· 试验机数据网关接入</text>
+  <text x="420" y="502" class="font item">· 力 / 位移实时采样</text>
+  <text x="420" y="526" class="font item">· 安全门 / 急停联锁</text>
+  <text x="420" y="550" class="font item">· 断裂时刻标记</text>
+  <text x="420" y="574" class="font item">· 原始曲线归档追溯</text>
+  <text x="420" y="598" class="font item">· 断网断电异常恢复</text>
+  <text x="420" y="618" class="font hint">原则：原始数据不可被 AI 改写</text>
+
+  <!-- 数据分析报告 -->
+  <rect x="752" y="420" width="330" height="214" rx="14" fill="#FFFFFF" stroke="#8068AB" stroke-width="1.6"/>
+  <rect x="752" y="420" width="330" height="40" rx="14" fill="#DDD4EE"/>
+  <rect x="752" y="444" width="330" height="16" fill="#DDD4EE"/>
+  <text x="917" y="446" text-anchor="middle" class="font card-title">数据分析与报告</text>
+  <text x="772" y="478" class="font item">· F–ΔL 曲线生成与特征点</text>
+  <text x="772" y="502" class="font item">· 强度 / 延伸等指标估算</text>
+  <text x="772" y="526" class="font item">· 断口结果关联引用</text>
+  <text x="772" y="550" class="font item">· 组报告自动生成（共享）</text>
+  <text x="772" y="574" class="font item">· 个人报告独立撰写提交</text>
+  <text x="772" y="598" class="font item">· 评阅对照现场证据</text>
+  <text x="772" y="618" class="font hint">双报告：组共享数据 / 个人独立分析</text>
+
+  <!-- 智能助手 -->
+  <rect x="1104" y="420" width="328" height="214" rx="14" fill="#FFFFFF" stroke="#8068AB" stroke-width="1.6"/>
+  <rect x="1104" y="420" width="328" height="40" rx="14" fill="#DDD4EE"/>
+  <rect x="1104" y="444" width="328" height="16" fill="#DDD4EE"/>
+  <text x="1268" y="446" text-anchor="middle" class="font card-title">智能助手（物小智）</text>
+  <text x="1124" y="478" class="font item">· 课前答疑 / 安全提醒</text>
+  <text x="1124" y="502" class="font item">· 课中步骤与操作引导</text>
+  <text x="1124" y="526" class="font item">· 曲线与断口数据解读</text>
+  <text x="1124" y="550" class="font item">· 个人报告草稿辅助</text>
+  <text x="1124" y="574" class="font item">· 教师端报告分析 / 查重</text>
+  <text x="1124" y="598" class="font item">· 评分建议（不替代教师）</text>
+  <text x="1124" y="618" class="font hint">边界：不控设备、不改原始数据</text>
+
+  <line x1="740" y1="660" x2="740" y2="686" stroke="#59636E" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ========== L3 模块化能力 ========== -->
+  <rect x="24" y="692" width="1432" height="246" rx="22" fill="#E2F0EF" stroke="#347B78" stroke-width="2.4" stroke-dasharray="11 6"/>
+  <text x="740" y="724" text-anchor="middle" class="font group-title">模块化实验能力（可扩展插件）</text>
+
+  <!-- 实验模块包 -->
+  <rect x="48" y="744" width="682" height="170" rx="14" fill="#F0F7F6" stroke="#347B78" stroke-width="1.8" stroke-dasharray="8 5"/>
+  <text x="389" y="774" text-anchor="middle" class="font card-title">实验模块包</text>
+  <text x="389" y="796" text-anchor="middle" class="font hint">首发拉伸，后续按同一接口扩展</text>
+
+  <g fill="#FFFFFF" stroke="#6C9895" stroke-width="1.4">
+    <rect x="68" y="812" width="148" height="78" rx="10"/>
+    <rect x="228" y="812" width="148" height="78" rx="10"/>
+    <rect x="388" y="812" width="148" height="78" rx="10"/>
+    <rect x="548" y="812" width="148" height="78" rx="10"/>
+  </g>
+  <text x="142" y="840" text-anchor="middle" class="font card-title">材料拉伸</text>
+  <text x="142" y="864" text-anchor="middle" class="font item">首发 · 曲线+断口</text>
+
+  <text x="302" y="840" text-anchor="middle" class="font card-title">压缩</text>
+  <text x="302" y="864" text-anchor="middle" class="font item">扩展模块</text>
+
+  <text x="462" y="840" text-anchor="middle" class="font card-title">弯曲</text>
+  <text x="462" y="864" text-anchor="middle" class="font item">扩展模块</text>
+
+  <text x="622" y="840" text-anchor="middle" class="font card-title">扭转</text>
+  <text x="622" y="864" text-anchor="middle" class="font item">扩展模块</text>
+
+  <!-- 通用能力包 -->
+  <rect x="752" y="744" width="680" height="170" rx="14" fill="#F0F7F6" stroke="#347B78" stroke-width="1.8" stroke-dasharray="8 5"/>
+  <text x="1092" y="774" text-anchor="middle" class="font card-title">通用能力包</text>
+  <text x="1092" y="796" text-anchor="middle" class="font hint">跨实验复用，不随模块重写</text>
+
+  <g fill="#FFFFFF" stroke="#6C9895" stroke-width="1.4">
+    <rect x="772" y="812" width="152" height="78" rx="10"/>
+    <rect x="936" y="812" width="152" height="78" rx="10"/>
+    <rect x="1100" y="812" width="152" height="78" rx="10"/>
+    <rect x="1264" y="812" width="148" height="78" rx="10"/>
+  </g>
+  <text x="848" y="840" text-anchor="middle" class="font card-title">视觉识别</text>
+  <text x="848" y="864" text-anchor="middle" class="font item">断口形貌辅助判别</text>
+
+  <text x="1012" y="840" text-anchor="middle" class="font card-title">曲线分析</text>
+  <text x="1012" y="864" text-anchor="middle" class="font item">屈服 / 强度特征提取</text>
+
+  <text x="1176" y="840" text-anchor="middle" class="font card-title">报告辅助</text>
+  <text x="1176" y="864" text-anchor="middle" class="font item">组报生成 · 草稿辅助</text>
+
+  <text x="1338" y="840" text-anchor="middle" class="font card-title">安全规则</text>
+  <text x="1338" y="864" text-anchor="middle" class="font item">联锁校验 · 操作规范</text>
+
+  <line x1="740" y1="938" x2="740" y2="964" stroke="#59636E" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ========== L4 硬件层 ========== -->
+  <rect x="24" y="970" width="1432" height="284" rx="22" fill="#ECEFF1" stroke="#59636E" stroke-width="2.4" stroke-dasharray="11 6"/>
+  <text x="740" y="1002" text-anchor="middle" class="font group-title">配套硬件层（软硬解耦 · 模块即插）</text>
+
+  <!-- 控制底座 -->
+  <rect x="48" y="1024" width="330" height="200" rx="14" fill="#FFFFFF" stroke="#73808B" stroke-width="1.6"/>
+  <rect x="48" y="1024" width="330" height="40" rx="14" fill="#DDE3E8"/>
+  <rect x="48" y="1048" width="330" height="16" fill="#DDE3E8"/>
+  <text x="213" y="1050" text-anchor="middle" class="font card-title">通用控制底座</text>
+  <text x="68" y="1084" class="font item">· 工业计算机 / 边缘主机</text>
+  <text x="68" y="1108" class="font item">· 采集控制与设备网关</text>
+  <text x="68" y="1132" class="font item">· 安全联锁逻辑执行</text>
+  <text x="68" y="1156" class="font item">· 本地缓存与断点续传</text>
+  <text x="68" y="1180" class="font item">· 实验室网络与终端接入</text>
+  <text x="68" y="1204" class="font hint">各实验模块共用底座</text>
+
+  <!-- 视觉 -->
+  <rect x="400" y="1024" width="330" height="200" rx="14" fill="#FFFFFF" stroke="#73808B" stroke-width="1.6"/>
+  <rect x="400" y="1024" width="330" height="40" rx="14" fill="#DDE3E8"/>
+  <rect x="400" y="1048" width="330" height="16" fill="#DDE3E8"/>
+  <text x="565" y="1050" text-anchor="middle" class="font card-title">视觉采集组件</text>
+  <text x="420" y="1084" class="font item">· 工业相机</text>
+  <text x="420" y="1108" class="font item">· 专业镜头</text>
+  <text x="420" y="1132" class="font item">· 准直 / 固定支架</text>
+  <text x="420" y="1156" class="font item">· 照明（可选）</text>
+  <text x="420" y="1180" class="font item">· 断口图像取证链路</text>
+  <text x="420" y="1204" class="font hint">力学首发标配视觉套件</text>
+
+  <!-- 加载 -->
+  <rect x="752" y="1024" width="330" height="200" rx="14" fill="#FFFFFF" stroke="#73808B" stroke-width="1.6"/>
+  <rect x="752" y="1024" width="330" height="40" rx="14" fill="#DDE3E8"/>
+  <rect x="752" y="1048" width="330" height="16" fill="#DDE3E8"/>
+  <text x="917" y="1050" text-anchor="middle" class="font card-title">加载执行组件</text>
+  <text x="772" y="1084" class="font item">· 拉力机（可利旧接入）</text>
+  <text x="772" y="1108" class="font item">· 夹具与对中工装</text>
+  <text x="772" y="1132" class="font item">· 力传感器</text>
+  <text x="772" y="1156" class="font item">· 位移传感器</text>
+  <text x="772" y="1180" class="font item">· 扩展：压缩/弯曲加载单元</text>
+  <text x="772" y="1204" class="font hint">换模块优先换执行件</text>
+
+  <!-- 结构防护 -->
+  <rect x="1104" y="1024" width="328" height="200" rx="14" fill="#FFFFFF" stroke="#73808B" stroke-width="1.6"/>
+  <rect x="1104" y="1024" width="328" height="40" rx="14" fill="#DDE3E8"/>
+  <rect x="1104" y="1048" width="328" height="16" fill="#DDE3E8"/>
+  <text x="1268" y="1050" text-anchor="middle" class="font card-title">结构防护组件</text>
+  <text x="1124" y="1084" class="font item">· 结构机架</text>
+  <text x="1124" y="1108" class="font item">· 防护外壳 / 观察窗</text>
+  <text x="1124" y="1132" class="font item">· 安全门与门磁</text>
+  <text x="1124" y="1156" class="font item">· 急停按钮</text>
+  <text x="1124" y="1180" class="font item">· 区域安全联锁接口</text>
+  <text x="1124" y="1204" class="font hint">保障教学现场安全落地</text>
+</svg>

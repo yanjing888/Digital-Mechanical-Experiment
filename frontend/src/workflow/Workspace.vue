@@ -34,12 +34,21 @@ const labEmptyMessage = computed(() => {
 })
 const tab = ref(props.teacher ? 'deduct' : props.page === 's-report' ? 'report' : 'data')
 const operationConfirmed = ref(false)
-const teacherSteps = [
-  { id: 'deduct', title: '现场扣分' },
-  { id: 'record', title: '实验记录' },
-  { id: 'report', title: '报告批阅与查重' },
-  { id: 'retake', title: '重做安排' },
+const teacherMenus = [
+  { id: 'classroom', title: '课堂管理', children: [{ id: 'deduct', title: '现场扣分' }, { id: 'record', title: '实验记录' }] },
+  { id: 'review', title: '报告与补做', children: [{ id: 'report', title: '报告批阅与查重' }, { id: 'retake', title: '重做安排' }] },
+  { id: 'settings', title: '教学设置', children: [{ id: 'settings', title: '扣分项配置' }] },
 ]
+const collapsedMenus = reactive({})
+const teacherLocation = computed(() => {
+  const id = showSettings.value ? 'settings' : tab.value
+  const group = teacherMenus.find(group => group.children.some(item => item.id === id))
+  return `${group?.title || ''} / ${group?.children.find(item => item.id === id)?.title || ''}`
+})
+function pickTeacherMenu(id) {
+  showSettings.value = id === 'settings'
+  if (id !== 'settings') tab.value = id
+}
 const selectedReportId = ref(null)
 const reportWorkspaceOpen = ref(false), reportMode = ref('review'), reportQuery = ref(''), reportFilter = ref('all')
 const reportStatus = student => !student.latest ? '未提交' : student.latest.returned ? '已退回' : student.latest.finalScore != null ? '已批改' : '待批改'
@@ -302,7 +311,7 @@ async function syncWanceData() {
 }
 watch(() => props.teacher, teacher => {
   if (!teacher) return
-  if (tab.value === 'opgrade' || !teacherSteps.some(s => s.id === tab.value)) tab.value = 'deduct'
+  if (tab.value === 'opgrade' || !teacherMenus.some(group => group.children.some(item => item.id === tab.value))) tab.value = 'deduct'
 }, { immediate: true })
 watch(() => props.page, page => {
   if (props.teacher) return
@@ -351,22 +360,35 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
 <template>
   <section class="workflow" :class="{ 'workflow--student': !teacher, 'workflow--teacher': teacher }">
     <header v-if="!teacher" class="workflow-heading workflow-heading--student"><h1>{{ studentPageTitle }}</h1></header>
-    <div v-else class="wf-teacher-toolbar"><button type="button" class="btn btn-ghost wf-config-trigger" :class="{ 'is-attention': !settings.catalogConfirmed }" @click="showSettings = true"><span class="wf-config-trigger__icon" aria-hidden="true">⚙</span><span>扣分项配置</span><small>{{ settings.catalogConfirmed ? `${settings.catalog.length} 项已启用` : '待确认' }}</small></button></div>
-    <p v-if="error" role="alert" class="wf-message error">{{ error }}</p><p v-if="notice" role="status" class="wf-message success">{{ notice }}</p>
-    <div v-if="teacher && showSettings" class="wf-config-mask" @click.self="showSettings = false">
-      <aside class="wf-config-drawer" role="dialog" aria-modal="true" aria-labelledby="deduction-config-title">
-        <header class="wf-config-drawer__head"><div><p class="eyebrow">课堂操作记录</p><h2 id="deduction-config-title">扣分项配置</h2><p>设置现场记录时可选的扣分项与对应分值。</p></div><button type="button" class="btn btn-ghost wf-config-close" aria-label="关闭扣分项配置" @click="showSettings = false">×</button></header>
-        <fieldset :disabled="busy"><div class="wf-deduction-config"><div class="wf-deduction-config__labels"><span>扣分项</span><span>扣分值</span><span>操作</span></div><div v-for="(item,i) in settings.catalog" :key="item.id" class="wf-deduction-config__row"><input v-model="item.label" :aria-label="`第 ${i + 1} 个扣分项名称`" placeholder="例如：实验运行时尝试打开保护罩"><label><input v-model.number="item.points" :aria-label="`第 ${i + 1} 个扣分项分值`" type="number" min="0" max="100"><span>分</span></label><button type="button" class="btn btn-ghost" :aria-label="`移除${item.label || '该扣分项'}`" @click="settings.catalog.splice(i,1)">移除</button></div></div><button type="button" class="btn btn-ghost" @click="settings.catalog.push({ id: newId(), label: '', points: 0 })">+ 增加扣分项</button><label class="wf-config-confirm"><input v-model="settings.catalogConfirmed" type="checkbox"> 我已确认扣分项目和分值，可用于课堂记录</label><div class="wf-config-actions"><button class="btn btn-primary" @click="action(saveSettings, '扣分项已保存')">保存扣分项</button><button type="button" class="btn btn-ghost" @click="showSettings = false">取消</button></div></fieldset>
-      </aside>
-    </div>
+
     <div class="workflow-layout workflow-layout--solo" :class="{ 'workflow-layout--teacher': teacher }">
+      <aside v-if="teacher" class="wf-teacher-sidebar">
+        <nav aria-label="课堂记录与评阅菜单">
+          <section v-for="group in teacherMenus" :key="group.id" class="wf-menu-group">
+            <button type="button" class="wf-menu-parent" :aria-expanded="!collapsedMenus[group.id]" :aria-controls="`teacher-menu-${group.id}`" @click="collapsedMenus[group.id] = !collapsedMenus[group.id]">
+              <span>{{ group.title }}</span><span aria-hidden="true">{{ collapsedMenus[group.id] ? '＋' : '−' }}</span>
+            </button>
+            <div v-show="!collapsedMenus[group.id]" :id="`teacher-menu-${group.id}`" class="wf-menu-children">
+              <button v-for="item in group.children" :key="item.id" type="button" class="wf-menu-item" :class="{ active: (showSettings ? 'settings' : tab) === item.id }" :aria-current="(showSettings ? 'settings' : tab) === item.id ? 'page' : undefined" @click="pickTeacherMenu(item.id)">{{ item.title }}<small v-if="item.id === 'settings' && !settings.catalogConfirmed">待确认</small></button>
+            </div>
+          </section>
+        </nav>
+      </aside>
       <div v-if="!teacher && !runs.length" class="wf-empty wf-empty--page">
         <p>{{ labEmptyMessage }}</p>
         <p v-if="labStatus?.sid || sid" class="wf-hint">当前登录学号：{{ labStatus?.sid || sid }}</p>
         <button type="button" class="btn btn-primary" :disabled="busy" @click="refreshLab">重新加载</button>
       </div>
-      <p v-if="teacher && !runs.length" class="wf-empty wf-empty--page">暂无实验记录</p>
-      <main v-if="run" class="wf-main" :class="{ 'wf-main--teacher': teacher, 'wf-main--student': !teacher }">
+      <main v-if="teacher || run" class="wf-main" :class="{ 'wf-main--teacher': teacher, 'wf-main--student': !teacher }">
+        <p v-if="teacher" class="wf-teacher-breadcrumb">{{ teacherLocation }}</p>
+    <div v-if="teacher && showSettings" class="wf-settings-page">
+      <section class="wf-panel" aria-labelledby="deduction-config-title">
+        <header class="wf-config-drawer__head"><div><p class="eyebrow">课堂操作记录</p><h2 id="deduction-config-title">扣分项配置</h2><p>设置现场记录时可选的扣分项与对应分值。</p></div><button type="button" class="btn btn-ghost wf-config-close" aria-label="关闭扣分项配置" @click="showSettings = false">×</button></header>
+        <fieldset :disabled="busy"><div class="wf-deduction-config"><div class="wf-deduction-config__labels"><span>扣分项</span><span>扣分值</span><span>操作</span></div><div v-for="(item,i) in settings.catalog" :key="item.id" class="wf-deduction-config__row"><input v-model="item.label" :aria-label="`第 ${i + 1} 个扣分项名称`" placeholder="例如：实验运行时尝试打开保护罩"><label><input v-model.number="item.points" :aria-label="`第 ${i + 1} 个扣分项分值`" type="number" min="0" max="100"><span>分</span></label><button type="button" class="btn btn-ghost" :aria-label="`移除${item.label || '该扣分项'}`" @click="settings.catalog.splice(i,1)">移除</button></div></div><button type="button" class="btn btn-ghost" @click="settings.catalog.push({ id: newId(), label: '', points: 0 })">+ 增加扣分项</button><label class="wf-config-confirm"><input v-model="settings.catalogConfirmed" type="checkbox"> 我已确认扣分项目和分值，可用于课堂记录</label><div class="wf-config-actions"><button class="btn btn-primary" @click="action(saveSettings, '扣分项已保存')">保存扣分项</button><button type="button" class="btn btn-ghost" @click="showSettings = false">取消</button></div></fieldset>
+      </section>
+    </div>
+        <p v-if="teacher && !run && !showSettings" class="wf-empty wf-empty--page">暂无实验记录，请先下发实验任务。</p>
+        <template v-if="run && (!teacher || !showSettings)">
         <header v-if="teacher" class="wf-teacher-bar">
           <div class="wf-teacher-bar__main">
             <p class="eyebrow">课堂记录与评阅</p>
@@ -379,9 +401,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
             </div>
           </div>
           <label v-if="runs.length > 1" class="wf-run-picker wf-teacher-bar__pick"><span>选择实验小组（{{ runs.length }} 条记录）</span><select class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验小组" @change="onPickRun"><optgroup v-for="group in teacherRunGroups" :key="group.name" :label="group.name"><option v-for="item in group.items" :key="item.id" :value="item.id">{{ item.groupName }} · 第 {{ item.attempt }} 次</option></optgroup></select></label>
-          <nav class="wf-teacher-tabs" aria-label="评阅功能">
-            <button v-for="s in teacherSteps" :key="s.id" type="button" class="wf-teacher-tab" :class="{ active: tab === s.id }" @click="tab = s.id">{{ s.title }}</button>
-          </nav>
+
         </header>
         <div v-else class="wf-student-head">
           <div class="wf-student-head-main">
@@ -483,6 +503,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           @download="file => action(() => downloadFile(file.fileId, file.fileName))"
           @submit="action(async () => { run = await call(`/runs/${run.id}/submit`, 'POST', { requestId }); requestId = newId() }, '提交成功')" />
         <AdvancedPanel v-if="teacher && tab === 'retake'" :run="run" :runs="runs" :teacher="teacher" :tab="tab" :teacher-mode="tab" :sid="sid" @updated="run = $event" @selected="action(async () => { await listRuns(); await select($event.id) }, '临时组重做记录已建立')" />
+        </template>
       </main>
     </div>
   </section>
@@ -508,4 +529,39 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
 
 <style>
 .wf-trial-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:18px;background:#f5f8f9}.wf-trial-nav button{display:grid;gap:8px;padding:16px;text-align:left;background:white;border:1px solid #dce6e9;border-radius:8px;color:#405766;cursor:pointer}.wf-trial-nav button.active{border-color:#087c88;background:#eaf7f7;color:#087c88}.wf-trial-nav small{font-size:12px}@media(max-width:650px){.wf-trial-nav{grid-template-columns:1fr 1fr}}
+</style>
+
+<style>
+.workflow-layout--teacher{grid-template-columns:224px minmax(0,1fr);align-items:start;gap:24px}
+.wf-teacher-sidebar{position:sticky;top:20px;background:#fff;border:1px solid #e1e9ed;border-radius:14px;overflow:auto;max-height:calc(100vh - 40px)}
+.wf-teacher-sidebar nav{padding:12px}
+@media(min-width:761px){
+  .app:has(.workflow--teacher)>.main{padding:0;overflow:hidden}
+  .app:has(.workflow--teacher)>.app-foot{display:none}
+  .stage:has(.workflow--teacher){width:100%;max-width:none;height:100%;min-height:0;margin:0;animation:none}
+  .workflow--teacher{padding:0;height:100%;display:flex;flex-direction:column;min-height:0}
+  .workflow--teacher>.wf-message{margin:0;flex-shrink:0}
+  .workflow-layout--teacher{flex:1;min-height:0;gap:0;align-items:stretch}
+  .workflow-layout--teacher>.wf-teacher-sidebar{position:static;height:100%;max-height:none;border:0;border-right:1px solid #e1e9ed;border-radius:0;overflow-y:auto}
+  .wf-teacher-sidebar nav{padding:20px 12px}
+  .workflow-layout--teacher>.wf-main--teacher{height:100%;overflow-y:auto;padding:24px 28px;box-sizing:border-box}
+}
+.wf-menu-group{margin-bottom:12px}
+.wf-menu-parent,.wf-menu-item{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:0;font:inherit;text-align:left;cursor:pointer;border-radius:8px}
+.wf-menu-parent{background:transparent;color:#52666f;font-size:13px;font-weight:700;padding:12px 10px}
+.wf-menu-children{display:grid;gap:4px}
+.wf-menu-item{padding:12px 12px 12px 24px;background:transparent;color:#52666f;font-size:14px;min-height:44px}
+.wf-menu-item:hover,.wf-menu-parent:hover{background:#f1f7f8}
+.wf-menu-item.active{background:#e8f4f5;color:#087c88;font-weight:700;box-shadow:inset 3px 0 #087c88}
+.wf-menu-item small{font-size:11px;color:#a33728;white-space:nowrap}
+.wf-menu-item:focus-visible,.wf-menu-parent:focus-visible{outline:2px solid #087c88;outline-offset:2px}
+.wf-teacher-breadcrumb{font-size:13px;color:#647980;margin:0 0 14px}
+.wf-main--teacher .wf-teacher-bar{padding-bottom:18px;grid-template-rows:auto}
+.wf-settings-page .wf-panel{border-radius:14px;border:1px solid #e1e9ed}
+.workflow-layout--teacher .report-grading-layout{grid-template-columns:170px minmax(0,1fr)}
+.workflow-layout--teacher .report-student-rail{grid-row:1/3}
+.workflow-layout--teacher .report-assessment-pane{grid-column:2;max-height:none}
+@media(min-width:1700px){.workflow-layout--teacher .report-grading-layout{grid-template-columns:190px minmax(0,1fr) 300px}.workflow-layout--teacher .report-student-rail{grid-row:auto}.workflow-layout--teacher .report-assessment-pane{grid-column:auto}}
+@media(min-width:901px) and (max-width:1200px){.workflow-layout--teacher .wf-deduct-layout{grid-template-columns:1fr}}
+@media(max-width:760px){.workflow-layout--teacher{grid-template-columns:1fr;gap:16px}.wf-teacher-sidebar{position:static;max-height:none}.wf-teacher-sidebar__head{padding:16px}.wf-teacher-sidebar__head>p:last-child{display:none}.wf-teacher-sidebar nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.wf-menu-item{padding:10px;font-size:12px}.wf-menu-parent{font-size:12px;padding:10px 6px}.wf-menu-item small{display:none}.wf-menu-group{margin:0}.workflow-layout--teacher .report-grading-layout{grid-template-columns:1fr}.workflow-layout--teacher .report-student-rail{grid-row:auto}.workflow-layout--teacher .report-assessment-pane{grid-column:auto}}
 </style>
