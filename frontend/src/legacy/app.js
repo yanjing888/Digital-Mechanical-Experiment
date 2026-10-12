@@ -20,6 +20,8 @@ export function bootApp() {
     page: localStorage.getItem(PAGE_KEY) || null,
     reportTab: localStorage.getItem(TAB_KEY) || 'group',
     snap: null,
+    roster: [],
+    teachers: [],
     acqTimer: null,
     localPoints: null,
     localMaxF: 0,
@@ -92,7 +94,11 @@ export function bootApp() {
   }
 
   /** 教师下发任务：固定四个实验项目（与后端 ExperimentCatalog 一致） */
-  var ASSIGN_EXPERIMENTS = [{ id: 'TENSION_COMPRESSION', name: '拉伸压缩实验', hours: 2 }];
+  var ASSIGN_EXPERIMENTS = [
+    { id: 'TENSION_COMPRESSION', name: '拉伸压缩实验', hours: 2, available: true },
+    { id: 'TORSION', name: '扭转实验', hours: 2, available: false },
+    { id: 'BENDING', name: '弯曲实验', hours: 2, available: false }
+  ];
 
   function teacherWorkflowGuide(step) {
     var steps = [
@@ -839,6 +845,17 @@ export function bootApp() {
     });
   }
 
+  function askInput(title, label, initial, password) {
+    return new Promise(function (resolve) {
+      openModal(title, '<label class="field-label" for="ui-input">' + esc(label) + '</label><input id="ui-input" class="inp" type="' + (password ? 'password' : 'text') + '" value="' + esc(initial || '') + '" autocomplete="off" />',
+        '<button type="button" class="btn btn-ghost" id="ui-input-cancel">取消</button><button type="button" class="btn btn-primary" id="ui-input-ok">保存</button>', false);
+      modalCloser = function (value) { resolve(value == null ? null : value); };
+      document.getElementById('ui-input-cancel').onclick = function () { closeModal(null); };
+      document.getElementById('ui-input-ok').onclick = function () { closeModal(document.getElementById('ui-input').value.trim()); };
+      document.getElementById('ui-input').focus();
+    });
+  }
+
   function stopAcq() {
     if (ui.acqTimer) { clearInterval(ui.acqTimer); ui.acqTimer = null; }
   }
@@ -872,8 +889,9 @@ export function bootApp() {
     var ungrouped = Array.isArray(meta.ungrouped)
       ? meta.ungrouped
       : students.filter(function (s) { return !s.groupId; });
-    var readyGroups = groups.filter(function (g) { return (g.members || []).length > 0; });
-    var canDispatch = students.length > 0 && !ungrouped.length && readyGroups.length > 0;
+    var assignedGroups = new Set(tasks.flatMap(function (t) { return t.groupIds || []; }));
+    var readyGroups = groups.filter(function (g) { return (g.members || []).length > 0 && !assignedGroups.has(g.id); });
+    var canDispatch = students.length > 0 && readyGroups.length > 0;
     var draft = ui.assignDraft || {};
     var exps = ASSIGN_EXPERIMENTS;
     if (!draft.expId || !exps.some(function (e) { return e.id === draft.expId; })) draft.expId = exps[0].id;
@@ -890,14 +908,15 @@ export function bootApp() {
       var members = g.members || [];
       var memberHtml = members.length ? members.map(function (m) {
         return '<div class="member-row">'
-          + '<span><strong>' + esc(m.name) + '</strong><span class="sub"> · ' + esc(m.sid) + '</span></span>'
+          + '<span><strong>' + esc(m.name) + '</strong><span class="sub"> · ' + esc(m.sid) + (m.cls ? ' · ' + esc(m.cls) : '') + '</span></span>'
           + '<button type="button" class="link-btn btn-ungroup-one" data-sid="' + esc(m.sid) + '">移出</button>'
           + '</div>';
       }).join('') : '<div class="empty-soft sm">暂无成员</div>';
-      var ready = members.length > 0;
+      var ready = members.length > 0 && !assignedGroups.has(g.id);
       return '<div class="group-card' + (ready ? ' is-ready' : '') + '" data-gid="' + esc(g.id) + '">'
         + '<div class="group-card-head">'
         +   '<div><h4>' + esc(g.name) + '</h4><span class="sub">' + members.length + ' 人</span></div>'
+        +   (assignedGroups.has(g.id) ? '<span class="tag ok">已下发</span>' : (ready ? '<label><input type="checkbox" name="dispatch-group" value="' + esc(g.id) + '"' + (!draft.groupIds || draft.groupIds.indexOf(g.id) >= 0 ? ' checked' : '') + '> 本次下发</label>' : ''))
         +   '<button type="button" class="link-btn danger btn-del-group" data-gid="' + esc(g.id) + '">删除</button>'
         + '</div>'
         + '<div class="group-members">' + memberHtml + '</div>'
@@ -911,15 +930,15 @@ export function bootApp() {
       : '<div class="empty-soft">暂无小组</div>';
 
     var expOpts = exps.map(function (e) {
-      return '<option value="' + e.id + '"' + (draft.expId === e.id ? ' selected' : '') + '>'
-        + esc(e.name) + '</option>';
+      return '<option value="' + e.id + '"' + (draft.expId === e.id ? ' selected' : '') + (e.available ? '' : ' disabled') + '>'
+        + esc(e.name) + (e.available ? '' : '（待建设）') + '</option>';
     }).join('');
 
     var taskRows = tasks.map(function (t) {
       var members = t.students || [];
       var names = members.map(function (m) { return m.name + ' ' + m.sid; }).join(' ');
       return '<tr data-task-search="' + esc([t.expName, t.timeText, t.place, t.note, names].join(' ').toLowerCase()) + '">'
-        + '<td><strong>' + esc(t.expName) + '</strong><div class="sub">' + esc(t.id) + '</div></td>'
+        + '<td><strong>' + esc(t.expName) + '</strong></td>'
         + '<td><details class="dispatch-students"><summary>' + members.length + ' 位学生 · 查看名单</summary><div class="dispatch-roster">'
         + (members.length ? members.map(function (m) { return '<div><strong>' + esc(m.name) + '</strong><span>' + esc(m.sid) + '</span></div>'; }).join('') : '<p class="sub">暂无下发时的学生记录</p>') + '</div></details></td>'
         + '<td>' + esc(t.timeText || '—') + '</td><td>' + esc(t.place || '—') + '</td><td>' + esc(t.note || '—') + '</td>'
@@ -927,7 +946,7 @@ export function bootApp() {
     }).join('');
 
     return ''
-      + pageHero('教师工作台', '下发实验任务', '')
+      + pageHero('', '下发实验任务', '')
       + '<div class="dashboard-grid assignment-layout">'
       // 左侧主区：实验安排 + 分组管理
       +   '<div class="dash-main">'
@@ -941,7 +960,7 @@ export function bootApp() {
       +       '</div>'
       +       '<div class="assign-fields grid-2">'
       +         '<div><label class="field-label">实验项目</label><select id="as-exp" class="inp">' + expOpts + '</select></div>'
-      +         '<div class="sub" style="grid-column:1/-1;padding:12px 0">本实验包含四个试验子项：钢的拉伸、铸铁的拉伸、钢的压缩、铸铁的压缩。统一下发任务，分别采集数据，每位学生提交一份综合实验报告。</div>'
+      +         '<div style="grid-column:1/-1"><label class="field-label">本课次试验</label><div class="row">' + [['STEEL_TENS','低碳钢拉伸'],['CAST_TENS','铸铁拉伸'],['STEEL_COMP','低碳钢压缩'],['CAST_COMP','铸铁压缩']].map(function(t) { return '<label style="margin-right:18px"><input type="checkbox" name="as-trial" value="' + t[0] + '"' + (!draft.requiredTrials || draft.requiredTrials.indexOf(t[0]) >= 0 ? ' checked' : '') + '> ' + t[1] + '</label>'; }).join('') + '</div></div>'
       +         '<div><label class="field-label">实验时间</label><input id="as-time" class="inp" value="' + esc(draft.timeText || '') + '" placeholder="时间" /></div>'
       +         '<div><label class="field-label">地点</label><input id="as-place" class="inp" value="' + esc(draft.place || '') + '" placeholder="地点" /></div>'
       +         '<div><label class="field-label">备注</label><input id="as-note" class="inp" value="' + esc(draft.note || '') + '" placeholder="备注" /></div>'
@@ -983,9 +1002,26 @@ export function bootApp() {
       +   '</div>'
 
       + '</div>'
-      + '<section class="card dash-card dispatch-history"><div class="dash-card-head"><div><h3 class="dash-card-title">已下发任务</h3><p class="sub">按下发记录查看实验安排与学生名单</p></div><label class="dispatch-search">搜索记录<input id="dispatch-search" class="inp" placeholder="实验、学生姓名 / 学号、地点、备注" /></label></div>'
+      + '<section class="card dash-card dispatch-history"><div class="dash-card-head"><div><h3 class="dash-card-title">已下发任务</h3></div><label class="dispatch-search">搜索记录<input id="dispatch-search" class="inp" placeholder="实验、学生姓名 / 学号、地点、备注" /></label></div>'
       + '<div class="dispatch-table-wrap"><table class="dispatch-table"><thead><tr><th>实验项目</th><th>学生列表</th><th>实验时间</th><th>地点</th><th>备注</th><th>下发时间</th></tr></thead><tbody>' + taskRows + '</tbody></table></div>'
       + '<p id="dispatch-empty" class="empty-soft"' + (tasks.length ? ' hidden' : '') + '>暂无匹配的下发记录</p><p class="sub" id="dispatch-count">共 ' + tasks.length + ' 条下发记录</p></section>';
+  }
+
+  function pageTeacherStudents() {
+    var students = ui.roster || [];
+    var classes = Array.from(new Set(students.map(function (s) { return s.cls || '未设置班级'; }))).sort();
+    return pageHero('', '学生名单', '', '<div class="row roster-actions"><button type="button" class="btn btn-ghost btn-sm" id="list-dl-template">下载模板</button><label class="btn btn-primary btn-sm" style="cursor:pointer">上传名单<input type="file" id="list-roster-file" accept=".xlsx,.xls,.csv" hidden /></label></div>')
+      + '<div class="card dash-card"><div class="dash-card-head"><strong>共 ' + students.length + ' 位学生</strong><div class="row" style="gap:10px"><select id="student-class-filter" class="inp"><option value="">全部班级</option>' + classes.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') + '</select><input id="student-search" class="inp" placeholder="搜索姓名或学号" /></div></div>'
+      + '<div class="dispatch-table-wrap"><table class="dispatch-table"><thead><tr><th>班级</th><th>姓名</th><th>学号</th><th>登录账号</th><th>小组</th><th>密码</th></tr></thead><tbody id="student-list-body">'
+      + students.sort(function (a, b) { return String(a.cls || '').localeCompare(String(b.cls || ''), 'zh') || String(a.sid).localeCompare(String(b.sid)); }).map(function (s) { return '<tr data-cls="' + esc(s.cls || '未设置班级') + '" data-search="' + esc((s.name + ' ' + s.sid).toLowerCase()) + '"><td>' + esc(s.cls || '未设置班级') + '</td><td><strong>' + esc(s.name) + '</strong></td><td>' + esc(s.sid) + '</td><td>' + esc(s.sid) + '</td><td>' + esc(s.groupName || '未分组') + '</td><td><button type="button" class="btn btn-ghost btn-sm btn-reset-student" data-sid="' + esc(s.sid) + '">重置密码</button></td></tr>'; }).join('')
+      + '</tbody></table></div><p id="student-list-empty" class="empty-soft"' + (students.length ? ' hidden' : '') + '>暂无学生</p></div>';
+  }
+
+  function pageAdminTeachers() {
+    var teachers = ui.teachers || [];
+    return '<section class="card dash-card admin-content"><div class="dash-card-head"><div><h3 class="dash-card-title">教师列表</h3><span class="sub">共 ' + teachers.length + ' 位</span></div><button type="button" class="btn btn-primary btn-sm" id="btn-add-teacher">新增教师</button></div><div class="dispatch-table-wrap"><table class="dispatch-table"><thead><tr><th>账号</th><th>姓名</th><th>状态</th><th>操作</th></tr></thead><tbody>'
+      + teachers.map(function (t) { return '<tr><td><strong>' + esc(t.username || '—') + '</strong></td><td>' + esc(t.name) + '</td><td>' + (t.active ? '<span class="tag ok">启用</span>' : '<span class="tag muted">停用</span>') + '</td><td><div class="row" style="gap:8px"><button type="button" class="btn btn-ghost btn-sm btn-rename-teacher" data-id="' + esc(t.id) + '" data-name="' + esc(t.name) + '">修改姓名</button><button type="button" class="btn btn-ghost btn-sm btn-reset-teacher" data-id="' + esc(t.id) + '">重置密码</button><button type="button" class="btn btn-ghost btn-sm btn-toggle-teacher" data-id="' + esc(t.id) + '" data-active="' + (t.active ? '1' : '0') + '">' + (t.active ? '停用' : '启用') + '</button></div></td></tr>'; }).join('')
+      + '</tbody></table></div></section>';
   }
 
   function pageTeacherGrade() {
@@ -1098,11 +1134,11 @@ export function bootApp() {
     var s = stu();
     if (!s) return '<p>未找到学生</p>';
     if (s.status === 'none') {
-      return pageHero('学生 · 步骤 1', '我的实验任务', '教师下发任务后，这里会显示实验安排与小组信息。')
+      return pageHero('', '我的实验任务', '')
         + emptyPanel('📋', '暂无实验任务', '当前还没有分配到实验任务。', '请等待教师在平台完成分组并下发任务，或使用学号重新登录确认。');
     }
     var mateList = (ui.snap.mates || []).map(function (m) {
-      return '<div class="mate-chip"><span class="mate-avatar">' + esc(m.name.charAt(0)) + '</span><span>' + esc(m.name) + '</span></div>';
+      return '<div class="mate-chip"><span class="mate-avatar">' + esc(m.name.charAt(0)) + '</span><span>' + esc(m.name) + ' · ' + esc(m.sid) + (m.cls ? ' · ' + esc(m.cls) : '') + '</span></div>';
     }).join('');
 
     var cta = s.status === 'assigned'
@@ -1144,7 +1180,6 @@ export function bootApp() {
       +       '<span class="ssb-dot"></span>'
       +       '<span class="ssb-text">' + stepTitle + '</span>'
       +     '</div>'
-      +     '<p class="stu-status-desc">' + stepDesc + '</p>'
       +     cta
       +   '</div>'
       + '</div>'
@@ -1447,6 +1482,14 @@ export function bootApp() {
     }
     stopAcq();
     unmountWorkflow();
+    if (p === 't-students') {
+      try { ui.roster = (await api.rosterStudents()).students || []; }
+      catch (e) { await showAlert(e.message); return; }
+    }
+    if (p === 'a-teachers') {
+      try { ui.teachers = (await api.adminTeachers()).teachers || []; }
+      catch (e) { await showAlert(e.message); return; }
+    }
     setPage(p);
     var root = document.getElementById('pages');
     document.querySelectorAll('.topnav .nav-item').forEach(function (btn) {
@@ -1459,13 +1502,15 @@ export function bootApp() {
     }
     var map = {
       't-assign': pageTeacherAssign,
+      't-students': pageTeacherStudents,
+      'a-teachers': pageAdminTeachers,
       't-grade': pageTeacherGrade,
       's-home': pageStudentHome,
       's-lab': pageStudentLab,
       's-report': pageStudentReport
     };
     root.innerHTML = (map[p] || function () { return '<p>未知页面</p>'; })();
-    if (!ui.snap || ui.snap.role !== 'teacher') paintStudentNav(p);
+    if (!ui.snap || ui.snap.role === 'student') paintStudentNav(p);
 
     await bindPage(p);
     setTimeout(function () {
@@ -1625,9 +1670,85 @@ export function bootApp() {
   }
 
   async function bindPage(p) {
+    if (p === 't-students') {
+      var filter = function () {
+        var cls = document.getElementById('student-class-filter').value;
+        var q = document.getElementById('student-search').value.trim().toLowerCase();
+        var visible = 0;
+        document.querySelectorAll('#student-list-body tr').forEach(function (row) {
+          var show = (!cls || row.getAttribute('data-cls') === cls) && (!q || row.getAttribute('data-search').indexOf(q) >= 0);
+          row.hidden = !show;
+          if (show) visible++;
+        });
+        document.getElementById('student-list-empty').hidden = visible > 0;
+      };
+      document.getElementById('student-class-filter').onchange = filter;
+      document.getElementById('student-search').oninput = filter;
+      document.getElementById('list-dl-template').onclick = function () { api.downloadRosterTemplate().catch(function (e) { showAlert(e.message); }); };
+      document.getElementById('list-roster-file').onchange = async function (e) {
+        var file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try { await api.uploadRoster(file); await refreshSession(); showPage('t-students'); }
+        catch (err) { await showAlert(err.message); }
+      };
+      document.querySelectorAll('.btn-reset-student').forEach(function (btn) {
+        btn.onclick = async function () {
+          var password = await askInput('重置学生密码', '新密码（至少 6 位）', '', true);
+          if (password == null) return;
+          try { await api.resetStudentPassword(btn.getAttribute('data-sid'), password); await showAlert('密码已重置'); }
+          catch (e) { await showAlert(e.message); }
+        };
+      });
+    }
+    if (p === 'a-teachers') {
+      document.getElementById('btn-add-teacher').onclick = function () {
+        openModal('新增教师', '<form id="add-teacher-form" class="admin-teacher-form"><div><label class="field-label" for="new-teacher-account">教师账号</label><input id="new-teacher-account" name="username" class="inp" required autocomplete="off" /></div><div><label class="field-label" for="new-teacher-name">姓名</label><input id="new-teacher-name" name="name" class="inp" required /></div><div><label class="field-label" for="new-teacher-password">密码</label><input id="new-teacher-password" name="password" class="inp" type="password" minlength="6" required autocomplete="new-password" /></div><p id="add-teacher-error" class="admin-form-error" hidden></p></form>',
+          '<button type="button" class="btn btn-ghost" data-close>取消</button><button type="submit" form="add-teacher-form" class="btn btn-primary">添加教师</button>', false);
+        document.getElementById('new-teacher-account').focus();
+        document.getElementById('add-teacher-form').onsubmit = async function (e) {
+          e.preventDefault();
+          var fd = new FormData(e.currentTarget);
+          try {
+            await api.addTeacher({ username: fd.get('username'), name: fd.get('name'), password: fd.get('password') });
+            closeModal();
+            await showPage('a-teachers');
+          } catch (err) {
+            var error = document.getElementById('add-teacher-error');
+            error.textContent = err.message;
+            error.hidden = false;
+          }
+        };
+      };
+      document.querySelectorAll('.btn-rename-teacher').forEach(function (btn) {
+        btn.onclick = async function () {
+          var name = await askInput('修改教师姓名', '姓名', btn.getAttribute('data-name'), false);
+          if (name == null) return;
+          try { await api.updateTeacher(btn.getAttribute('data-id'), { name: name }); showPage('a-teachers'); }
+          catch (e) { await showAlert(e.message); }
+        };
+      });
+      document.querySelectorAll('.btn-reset-teacher').forEach(function (btn) {
+        btn.onclick = async function () {
+          var password = await askInput('重置教师密码', '新密码（至少 6 位）', '', true);
+          if (password == null) return;
+          try { await api.updateTeacher(btn.getAttribute('data-id'), { password: password }); await showAlert('密码已重置'); }
+          catch (e) { await showAlert(e.message); }
+        };
+      });
+      document.querySelectorAll('.btn-toggle-teacher').forEach(function (btn) {
+        btn.onclick = async function () {
+          var active = btn.getAttribute('data-active') !== '1';
+          if (!await showConfirm(active ? '启用该教师账号？' : '停用该教师账号？')) return;
+          try { await api.updateTeacher(btn.getAttribute('data-id'), { active: active }); showPage('a-teachers'); }
+          catch (e) { await showAlert(e.message); }
+        };
+      });
+    }
     if (p === 't-assign') {
       function saveAssignDraft() {
         ui.assignDraft = {
+          groupIds: Array.from(document.querySelectorAll('input[name="dispatch-group"]:checked')).map(function(el) { return el.value; }),
+          requiredTrials: Array.from(document.querySelectorAll('input[name="as-trial"]:checked')).map(function(el) { return el.value; }),
           expId: (document.getElementById('as-exp') || {}).value || '',
           timeText: ((document.getElementById('as-time') || {}).value || '').trim(),
           place: ((document.getElementById('as-place') || {}).value || '').trim(),
@@ -1643,6 +1764,7 @@ export function bootApp() {
         el.addEventListener('input', saveAssignDraft);
       });
 
+      document.querySelectorAll('input[name="as-trial"], input[name="dispatch-group"]').forEach(function(el) { el.addEventListener('change', saveAssignDraft); });
       var dl = document.getElementById('btn-dl-template');
       if (dl) dl.onclick = function () {
         api.downloadRosterTemplate().catch(function (e) { showAlert(e.message); });
@@ -1830,12 +1952,7 @@ export function bootApp() {
       var btn = document.getElementById('btn-dispatch');
       if (btn) btn.onclick = async function () {
         saveAssignDraft();
-        var ungrouped = (ui.snap.meta && ui.snap.meta.ungrouped) || [];
-        if (ungrouped.length) {
-          await showAlert('还有 ' + ungrouped.length + ' 人未分配组别，请全部分组后再下发');
-          return;
-        }
-        var gids = (btn.getAttribute('data-gids') || '').split(',').filter(Boolean);
+        var gids = Array.from(document.querySelectorAll('input[name="dispatch-group"]:checked')).map(function(el) { return el.value; });
         if (!gids.length) { await showAlert('请先完成分组后再下发'); return; }
         try {
           var r = await api.createTask({
@@ -1844,6 +1961,7 @@ export function bootApp() {
             place: document.getElementById('as-place').value.trim(),
             note: document.getElementById('as-note').value.trim(),
             tip: document.getElementById('as-tip').value.trim(),
+            requiredTrials: Array.from(document.querySelectorAll('input[name="as-trial"]:checked')).map(function(el) { return el.value; }),
             groupIds: gids
           });
           ui.snap.tasks = r.tasks;
@@ -2399,18 +2517,22 @@ export function bootApp() {
   async function enterApp() {
     await refreshSession();
     var isTea = ui.snap.role === 'teacher';
+    var isAdmin = ui.snap.role === 'admin';
     document.getElementById('screen-login').classList.add('hidden');
     document.getElementById('screen-app').classList.remove('hidden');
     document.getElementById('nav-teacher').classList.toggle('hidden', !isTea);
-    document.getElementById('nav-student').classList.toggle('hidden', isTea);
-    document.getElementById('top-who').textContent = isTea
+    document.getElementById('nav-admin').classList.toggle('hidden', !isAdmin);
+    document.getElementById('nav-student').classList.toggle('hidden', isTea || isAdmin);
+    document.getElementById('top-who').textContent = isAdmin ? ('管理端 · ' + ui.snap.adminName) : isTea
       ? ('教师 · ' + ui.snap.teacherName)
       : (ui.snap.student.name + ' · ' + ui.snap.student.sid + ' · ' + ui.snap.student.groupName);
 
     updateAppFoot(isTea);
-    var page = ui.page || (isTea ? 't-assign' : 's-home');
-    if (isTea && page.indexOf('s-') === 0) page = 't-assign';
-    if (!isTea && page.indexOf('t-') === 0) page = 's-home';
+    if (isAdmin) document.getElementById('foot-role').textContent = '用户管理';
+    var page = ui.page || (isAdmin ? 'a-teachers' : (isTea ? 't-assign' : 's-home'));
+    if (isAdmin && page !== 'a-teachers') page = 'a-teachers';
+    if (isTea && page.indexOf('t-') !== 0) page = 't-assign';
+    if (!isTea && !isAdmin && page.indexOf('s-') !== 0) page = 's-home';
     await showPage(page);
   }
 
@@ -2425,7 +2547,7 @@ export function bootApp() {
     try {
       var r = await api.login({ account: account, password: password });
       api.setToken(r.token);
-      setPage(r.role === 'teacher' ? 't-assign' : 's-home');
+      setPage(r.role === 'admin' ? 'a-teachers' : (r.role === 'teacher' ? 't-assign' : 's-home'));
       await enterApp();
     } catch (e) { await showAlert(e.message); }
   };

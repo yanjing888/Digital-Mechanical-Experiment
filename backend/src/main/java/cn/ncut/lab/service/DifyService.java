@@ -6,13 +6,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -101,27 +104,39 @@ public class DifyService {
     public Map<String, Object> gradeReport(String reportType, String studentName, String studentSid,
                                            String groupName, String expName, String reportText,
                                            Map<String, Object> labData, String user) {
-        String type = "personal".equals(reportType) ? "personal" : "group";
+        String safeSid = studentSid == null || studentSid.isBlank() ? "student" : studentSid.replaceAll("[^A-Za-z0-9_-]", "_");
+        byte[] textFile = htmlToText(reportText == null ? "" : reportText).getBytes(StandardCharsets.UTF_8);
+        return gradeReport(studentName, studentSid, groupName, expName, reportText,
+                safeSid + "-report.txt", "text/plain", textFile, user);
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> gradeReport(String studentName, String studentSid, String groupName,
+                                           String expName, String reportText, String fileName,
+                                           String mimeType, byte[] fileContents, String user) {
         String text = htmlToText(reportText == null ? "" : reportText);
-        if (text.length() > 14000) text = text.substring(0, 14000);
         int charCount = measureCharCount(text);
-        if (labData == null) labData = new LinkedHashMap<>();
 
         if (!isEnabled()) {
-            return localFallback(type, text, labData, charCount);
+            return localFallback("personal", text, new LinkedHashMap<>(), charCount);
         }
+        if (fileContents == null || fileContents.length == 0) throw new ApiException(400, "实验报告文件为空，无法进行 AI 批阅");
+
+        String workflowUser = user != null && !user.isBlank() ? user : (studentSid != null ? studentSid : "teacher");
+        String uploadFileId = uploadFile(fileName, mimeType, fileContents, workflowUser);
 
         Map<String, Object> inputs = new LinkedHashMap<>();
-        inputs.put("report_type", type);
         inputs.put("student_name", studentName == null ? "" : studentName);
         inputs.put("student_sid", studentSid == null ? "" : studentSid);
         inputs.put("group_name", groupName == null ? "" : groupName);
         inputs.put("exp_name", expName == null ? "" : expName);
-        inputs.put("report_text", text.isBlank() ? "（报告正文为空：步骤/分析/反思均无有效文字）" : text);
-        inputs.put("lab_data", JsonUtil.write(labData));
-        inputs.put("content_chars", String.valueOf(charCount));
+        inputs.put("report_file", Map.of(
+                "type", "document",
+                "transfer_method", "local_file",
+                "upload_file_id", uploadFileId
+        ));
 
-        Map<String, Object> raw = runWorkflow(inputs, user != null ? user : (studentSid != null ? studentSid : "teacher"));
+        Map<String, Object> raw = runWorkflow(inputs, workflowUser);
         Map<String, Object> outputs = new LinkedHashMap<>();
         Object dataObj = raw.get("data");
         if (dataObj instanceof Map<?, ?> state && state.get("status") != null && !"succeeded".equals(state.get("status"))) {
@@ -138,6 +153,64 @@ public class DifyService {
         if (dataObj instanceof Map<?, ?> dm) out.put("workflowRunId", dm.get("id") != null ? dm.get("id") : dm.get("workflow_run_id"));
         out.put("charCount", charCount);
         return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String uploadFile(String fileName, String mimeType, byte[] contents, String user) {
+        String key = gradingKey();
+        if (key.isBlank()) throw new ApiException(503, "缺少 DIFY_GRADING_API_KEY / DIFY_API_KEY");
+        String boundary = "----LabReport" + UUID.randomUUID().toString().replace("-", "");
+        String uploadName = safeUploadName(fileName);
+        String contentType = mimeType == null || mimeType.isBlank() ? "application/octet-stream" : mimeType;
+        try {
+            ByteArrayOutputStream body = new ByteArrayOutputStream(contents.length + 1024);
+            writeMultipartText(body, boundary, "user", user);
+            body.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+            body.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + uploadName + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+            body.write(("Content-Type: " + contentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+            body.write(contents);
+            body.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(apiBase() + "/files/upload"))
+                    .header("Authorization", "Bearer " + key)
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .timeout(Duration.ofSeconds(120))
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
+                    .build();
+            HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            Map<String, Object> data;
+            try {
+                data = mapper.readValue(res.body(), Map.class);
+            } catch (Exception ignored) {
+                data = new LinkedHashMap<>();
+            }
+            if (res.statusCode() < 200 || res.statusCode() >= 300) {
+                Object message = data.getOrDefault("message", data.getOrDefault("error", "Dify 文件上传失败 HTTP " + res.statusCode()));
+                throw new ApiException(res.statusCode() >= 400 && res.statusCode() < 600 ? res.statusCode() : 502, String.valueOf(message));
+            }
+            String id = data.get("id") == null ? "" : String.valueOf(data.get("id")).trim();
+            if (id.isBlank()) throw new ApiException(502, "Dify 文件上传成功但未返回文件 ID");
+            return id;
+        } catch (ApiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ApiException(502, "Dify 文件上传失败：" + e.getMessage());
+        }
+    }
+
+    private static void writeMultipartText(ByteArrayOutputStream body, String boundary, String name, String value) throws java.io.IOException {
+        body.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write(("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
+        body.write("\r\n".getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String safeUploadName(String fileName) {
+        String name = fileName == null ? "" : fileName.replace('\\', '/');
+        name = name.substring(name.lastIndexOf('/') + 1);
+        Matcher extension = Pattern.compile("(?i)(\\.[a-z0-9]{1,8})$").matcher(name);
+        return "report" + (extension.find() ? extension.group(1).toLowerCase() : ".bin");
     }
 
     @SuppressWarnings("unchecked")

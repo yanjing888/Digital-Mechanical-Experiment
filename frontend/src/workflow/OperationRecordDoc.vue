@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import CurveChart from './CurveChart.vue'
 import StressStrainChart from './StressStrainChart.vue'
-import { isTensileTrial } from './stress-strain.js'
+import { isStressStrainTrial } from './stress-strain.js'
 
 const props = defineProps({
   run: { type: Object, required: true },
@@ -19,7 +19,6 @@ const deductionTotal = computed(() =>
 )
 const operationScore = computed(() => {
   const r = props.run
-  if (r.finalScore != null) return r.finalScore
   if (r.operationScore != null) return r.operationScore
   return Math.max(0, 100 - deductionTotal.value)
 })
@@ -29,7 +28,7 @@ const operationScore = computed(() => {
   <article class="wf-op-doc" :class="{ 'wf-op-doc--readonly': readOnly }">
     <header class="wf-op-doc__mast">
       <p class="wf-op-doc__org">力 学 实 验</p>
-      <h1 class="wf-op-doc__title">实验操作记录报告</h1>
+      <h1 class="wf-op-doc__title">本课次实验操作记录</h1>
       <p class="wf-op-doc__subtitle">{{ run.expName || '力学实验' }}</p>
       <dl class="wf-op-doc__meta">
         <div><dt>实验小组</dt><dd>{{ run.groupName }} · 第 {{ run.attempt }} 次</dd></div>
@@ -44,10 +43,10 @@ const operationScore = computed(() => {
     <template v-if="run.trialItems">
       <section v-for="(trial, index) in run.trialItems" :key="trial.id" class="wf-op-doc__section">
         <h2>{{ index + 1 }}. {{ trial.name }}</h2>
-        <p class="wf-op-doc__note">试件编号：{{ trial.specimenId || '—' }} · 设备编号：{{ trial.deviceId || '—' }} · 试验时间：{{ stamp(trial.experimentAt) }}</p>
+        <p v-if="trial.specimenId || trial.deviceId" class="wf-op-doc__note">试件编号：{{ trial.specimenId || '—' }} · 设备编号：{{ trial.deviceId || '—' }} · 试验时间：{{ stamp(trial.experimentAt) }}</p>
         <template v-if="trial.data"><table class="wf-op-doc__kv"><tbody><tr><th>最大力</th><td>{{ trial.data.maxF?.toFixed?.(3) ?? trial.data.maxF }} kN</td><th>最大位移</th><td>{{ trial.data.maxD?.toFixed?.(3) ?? trial.data.maxD }} mm</td></tr></tbody></table><CurveChart :points="trial.data.points || []" :title="`${trial.name} · 力—位移曲线`" /></template>
         <p v-else class="wf-op-doc__empty">本子项尚未采集设备数据。</p>
-        <StressStrainChart v-if="trial.data && isTensileTrial(trial.id)" :points="trial.data.points || []" />
+        <StressStrainChart v-if="trial.data && isStressStrainTrial(trial.id)" :points="trial.data.points || []" :geometry="trial.geometry" />
         <div class="wf-op-doc__photos"><figure v-for="photo in trial.photos || []" :key="photo.id"><img v-if="images[photo.id]" :src="images[photo.id]" :alt="`${trial.name}试件形貌`"><figcaption>{{ trial.name }} · {{ photo.angle }}</figcaption></figure></div>
         <p v-if="!trial.photos?.length" class="wf-op-doc__empty">本子项尚未采集试件照片。</p>
         <div v-if="trial.fractureSummary" class="wf-op-doc__callout"><p class="wf-op-doc__verdict">形貌分析：{{ trial.fractureSummary.label }}</p><ul class="wf-op-doc__list"><li v-for="(line, i) in trial.fractureSummary.evidence || []" :key="i">{{ line }}</li></ul></div>
@@ -68,7 +67,7 @@ const operationScore = computed(() => {
           <CurveChart :points="points" title="" />
           <figcaption>图 1　力—位移曲线</figcaption>
         </figure>
-        <StressStrainChart v-if="isTensileTrial(run.expId)" :points="points" />
+        <StressStrainChart v-if="isStressStrainTrial(run.expId)" :points="points" :geometry="run.geometry" />
         <p v-if="run.fractureSummary?.curve?.label" class="wf-op-doc__note">曲线形貌线索：{{ run.fractureSummary.curve.label }}</p>
       </template>
       <p v-else class="wf-op-doc__empty">尚未关联设备试验数据。</p>
@@ -94,10 +93,10 @@ const operationScore = computed(() => {
 
     </template>
     <section class="wf-op-doc__section">
-      <h2>实验操作评价</h2>
+      <h2>本课次操作评价</h2>
       <div class="wf-op-doc__scoreline">
         <div class="wf-op-doc__score-main">
-          <span>操作成绩：</span><span class="wf-op-doc__score-num">{{ operationScore }}</span><span class="wf-op-doc__score-unit">分</span>
+          <span>本课次操作成绩：</span><span class="wf-op-doc__score-num">{{ operationScore }}</span><span class="wf-op-doc__score-unit">分</span>
         </div>
         <p class="wf-op-doc__note">基础分 100 · 已扣 {{ deductionTotal }} 分<span v-if="run.classOpen"> · 课堂记录进行中，扣分可能继续更新</span></p>
       </div>

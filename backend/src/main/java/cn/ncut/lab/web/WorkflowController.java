@@ -16,7 +16,17 @@ public class WorkflowController {
     private final RunService runs;
     private final TeachingService teaching;
     private final ReviewService review;
-    public WorkflowController(RunService runs,TeachingService teaching,ReviewService review) { this.runs=runs;this.teaching=teaching;this.review=review; }
+    private final cn.ncut.lab.service.ClassroomService classroom;
+    private final cn.ncut.lab.service.ReportDeskService reports;
+    public WorkflowController(RunService runs,TeachingService teaching,ReviewService review,cn.ncut.lab.service.ClassroomService classroom,cn.ncut.lab.service.ReportDeskService reports) { this.runs=runs;this.teaching=teaching;this.review=review;this.classroom=classroom;this.reports=reports; }
+    @GetMapping("/gradebook") public Object gradebook(HttpServletRequest q) {return reports.gradebook(actor(q));}
+    @GetMapping("/report-desk") public Object reportDesk(HttpServletRequest q,@RequestParam String taskId) {return reports.roster(taskId,actor(q));}
+    @GetMapping("/report-desk/{id}/compare") public Object compareReports(HttpServletRequest q,@PathVariable String id,@RequestParam String otherId) {return reports.compare(id,otherId,actor(q));}
+    @PostMapping("/report-desk/{id}/similarity") public Object checkReport(HttpServletRequest q,@PathVariable String id) {return reports.check(id,actor(q));}
+    @PostMapping("/report-desk/{id}/begin") public Object beginReview(HttpServletRequest q,@PathVariable String id) {reports.begin(id,actor(q));return Map.of("ok",true);}
+    @GetMapping("/report-desk/{id}/graded-file") public ResponseEntity<byte[]> gradedFile(HttpServletRequest q,@PathVariable String id) {
+        return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION,"attachment; filename=review-"+id+".docx").contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.wordprocessingml.document")).body(reports.gradedReport(id,actor(q)));
+    }
     static RunService.Actor actor(HttpServletRequest req) {
         Map<String,Object> s=Sessions.get(req); boolean teacher="teacher".equals(s.get("role"));
         return new RunService.Actor(teacher,String.valueOf(s.get(teacher?"teacher_name":"student_id")).trim());
@@ -36,6 +46,7 @@ public class WorkflowController {
     }
     @GetMapping("/runs/{id}") public Object get(HttpServletRequest q,@PathVariable String id) {return runs.detail(id,actor(q));}
     @GetMapping("/runs/{id}/classroom") public Object classroom(HttpServletRequest q,@PathVariable String id) {return runs.classroom(id,actor(q));}
+    @PostMapping("/runs/{id}/score-confirmation") public Object confirmScore(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return classroom.confirm(id,actor(q),b);}
     @GetMapping("/runs/{id}/legacy") public Object legacy(HttpServletRequest q,@PathVariable String id) {return runs.legacy(id,actor(q));}
     @PatchMapping("/runs/{id}") public Object update(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return runs.update(id,actor(q),b);}
     @PostMapping("/runs/{id}/photos") public Object photo(HttpServletRequest q,@PathVariable String id,@RequestParam MultipartFile file,@RequestParam String angle) {
@@ -69,6 +80,7 @@ public class WorkflowController {
     @PostMapping("/runs/{id}/submit") public Object submit(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return teaching.submit(id,actor(q),b);}
     @PostMapping("/runs/{id}/reports/{rid}/review") public Object review(HttpServletRequest q,@PathVariable String id,@PathVariable String rid,@RequestBody Map<String,Object> b) {return teaching.review(id,rid,actor(q),b);}
     @PostMapping("/runs/{id}/retake-request") public Object retakeRequest(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return review.requestRetake(id,actor(q),b);}
+    @GetMapping("/runs/{id}/retake-students") public Object retakeStudents(HttpServletRequest q,@PathVariable String id) {return review.retakeStudents(id,actor(q));}
     @PostMapping("/runs/{id}/retake") public Object retake(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return review.createRetake(id,actor(q),b);}
     @PostMapping("/runs/{id}/adopt") public Object adopt(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return review.adopt(id,actor(q),b);}
     @PostMapping("/runs/{id}/reference") public Object reference(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return review.reference(id,actor(q),b);}

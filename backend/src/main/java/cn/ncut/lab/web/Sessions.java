@@ -24,6 +24,14 @@ public final class Sessions {
         return sess;
     }
 
+    public static Map<String, Object> requireAdmin(HttpServletRequest req) {
+        Map<String, Object> sess = get(req);
+        if (!"admin".equals(String.valueOf(sess.get("role")))) {
+            throw new ApiException(403, "需要管理权限");
+        }
+        return sess;
+    }
+
     public static Map<String, Object> requireStudent(HttpServletRequest req) {
         Map<String, Object> sess = get(req);
         if (!"student".equals(String.valueOf(sess.get("role")))) {

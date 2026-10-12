@@ -67,14 +67,14 @@ public class TeachingService {
             Map<String,Object> rule=list(s.get("catalog")).stream().filter(c->Objects.equals(c.get("id"),key)).findFirst().orElseThrow(()->new ApiException(400,"扣分项目不存在"));
             List<Map<String,Object>> deductions=list(r.get("deductions"));Map<String,Object> item=new LinkedHashMap<>(rule);item.put("id",id());item.put("ruleId",key);item.put("reason",reason);item.put("by",a.id());item.put("at",now());deductions.add(item);r.put("deductions",deductions);
         }
-        runs.save(r,a,"记录课堂扣分："+reason);return runs.detail(id,a);
+        ClassroomService.scoreChanged(r);runs.save(r,a,"记录课堂扣分："+reason);return runs.detail(id,a);
     }
     @Transactional
     public Object voidDeduction(String id,String did,Actor a,Map<String,Object> b) {
         teacher(a);Map<String,Object> r=runs.load(id,a,true);runs.checkRevision(r,b);
         String reason=required(b.get("reason"),"撤销理由");boolean found=false;
         for(var d:list(r.get("deductions")))if(did.equals(d.get("id"))){d.put("voided",true);d.put("voidReason",reason);d.put("voidAt",now());d.put("voidBy",a.id());found=true;}
-        if(!found)throw new ApiException(404,"扣分记录不存在");runs.save(r,a,"纠正扣分："+reason);return runs.detail(id,a);
+        if(!found)throw new ApiException(404,"扣分记录不存在");ClassroomService.scoreChanged(r);runs.save(r,a,"纠正扣分："+reason);return runs.detail(id,a);
     }
     @Transactional
     public Object control(String id,Actor a,Map<String,Object> b) {
@@ -87,11 +87,18 @@ public class TeachingService {
             default -> required(b.get("reason"), "操作理由");
         };
         switch(action) {
-            case "close" -> r.put("classOpen",false);
-            case "open" -> r.put("classOpen",true);
-            case "return" -> {r.put("archived",false);r.put("status","collecting");}
-            case "grade" -> {r.put("finalScore",score(b.get("score")));r.put("finalComment",required(b.get("comment"),"评语"));r.put("gradedBy",a.id());r.put("gradedAt",now());}
-            case "clearGrade" -> {r.remove("finalScore");r.remove("finalComment");}
+            case "close" -> {
+                if(!Boolean.TRUE.equals(r.get("archived")))throw new ApiException(409,"该组尚未提交本课次操作记录");
+                r.put("classOpen",false);r.put("confirmationRequired",true);r.put("scorePublishedAt",now());
+            }
+            case "open" -> {r.put("classOpen",true);ClassroomService.scoreChanged(r);}
+            case "return" -> {
+                if(!Boolean.TRUE.equals(r.get("archived")))throw new ApiException(409,"操作记录尚未提交");
+                if(!Boolean.TRUE.equals(r.get("classOpen")))throw new ApiException(409,"成绩已发布；如需调整扣分，请先重新开放评分");
+                r.put("archived",false);r.remove("archivedAt");r.remove("scorePublishedAt");r.put("status","collecting");ClassroomService.scoreChanged(r);
+            }
+            case "grade" -> {r.put("finalScore",score(b.get("score")));r.put("finalComment",required(b.get("comment"),"评语"));r.put("gradedBy",a.id());r.put("gradedAt",now());ClassroomService.scoreChanged(r);}
+            case "clearGrade" -> {r.remove("finalScore");r.remove("finalComment");ClassroomService.scoreChanged(r);}
             default -> throw new ApiException(400,"未知操作");
         }
         runs.save(r,a,action+"："+reason);return runs.detail(id,a);
@@ -107,7 +114,7 @@ public class TeachingService {
     @Transactional
     public Object uploadReport(String id,Actor a,MultipartFile f) {
         if(a.teacher())throw new ApiException(403,"由学生本人上传报告");
-        Map<String,Object> r=runs.load(id,a,true);canSubmit(r,a);validateExtension(f);
+        Map<String,Object> r=runs.load(id,a,true);canEditReport(r,a);validateExtension(f);
         byte[] bytes=runs.bytes(f);ReportParser.Result parsed=parser.parse(bytes,str(f.getOriginalFilename()));
         String fid=runs.file(id,a,"report",f,bytes,parsed.mime(),parsed.text(),parsed.status());
         Map<String,Object> draft=new LinkedHashMap<>();draft.put("fileId",fid);draft.put("fileName",str(f.getOriginalFilename()));draft.put("parseStatus",parsed.status());draft.put("warning",parsed.warning());draft.put("uploadedAt",now());draft.put("textPreview",parsed.text().substring(0,Math.min(4000,parsed.text().length())));
@@ -116,6 +123,11 @@ public class TeachingService {
     }
     private void canSubmit(Map<String,Object> r,Actor a) {
         if(!Boolean.TRUE.equals(r.get("archived")))throw new ApiException(409,"请先完成实验记录归档");
+        if(Boolean.TRUE.equals(r.get("classOpen")))throw new ApiException(409,"请等待教师确认最终扣分并发布操作成绩");
+        if(!ClassroomService.confirmed(r,a.id()))throw new ApiException(409,"请先确认本次最终操作成绩");
+        canEditReport(r,a);
+    }
+    private void canEditReport(Map<String,Object> r,Actor a) {
         Integer n=runs.jdbc().queryForObject("SELECT COUNT(*) FROM report_versions WHERE run_id=? AND sid=?",Integer.class,r.get("id"),a.id());
         if(n>0&&!Boolean.TRUE.equals(map(r.get("reportReopened")).get(a.id())))throw new ApiException(409,"报告已提交，需教师退回后上传新版本");
     }
@@ -141,9 +153,12 @@ public class TeachingService {
         Map<String,Object> report=new LinkedHashMap<>(draft);report.remove("textPreview");report.put("observation",observation);report.put("requestId",requestId);report.put("sha256",f.get("sha256"));
         Map<String,Object> submittedData=new LinkedHashMap<>(map(r.get("data")));submittedData.remove("points");
         Map<String,Object> snap=new LinkedHashMap<>();
+        snap.put("runId",id);snap.put("taskId",r.get("taskId"));snap.put("groupId",r.get("groupId"));snap.put("groupName",r.get("groupName"));
         snap.put("specimenId",str(r.get("specimenId")));snap.put("deviceId",str(r.get("deviceId")));
         snap.put("dataFileId",map(r.get("data")).get("fileId"));snap.put("data",submittedData);snap.put("photos",r.get("photos"));
         snap.put("runRevision",r.get("revision"));
+        snap.put("operationScore",operationScore(r));snap.put("scoreVersion",ClassroomService.version(r));
+        snap.put("scoreConfirmation",map(map(r.get("scoreConfirmations")).get(a.id())));snap.put("geometry",r.get("geometry"));
         Map<String,Object> fracture=map(r.get("fractureSummary"));
         snap.put("fractureJudgment",fracture.get("judgment"));snap.put("fractureLabel",fracture.get("label"));
         snap.put("fractureReportBasis",fracture.get("reportBasis"));
@@ -165,7 +180,7 @@ public class TeachingService {
             int latest=runs.jdbc().queryForObject("SELECT MAX(version) FROM report_versions WHERE run_id=? AND sid=?",Integer.class,id,row.get("sid"));
             if(((Number)row.get("version")).intValue()!=latest)throw new ApiException(409,"只能退回最新版本");
             Map<String,Object> reopened=map(r.get("reportReopened"));reopened.put(str(row.get("sid")),true);r.put("reportReopened",reopened);report.put("returned",true);report.put("returnReason",reason);
-        } else {report.put("finalScore",score(b.get("score")));report.put("finalComment",reason);report.put("gradedAt",now());report.put("gradedBy",a.id());}
+        } else {report.put("finalScore",score(b.get("score")));report.put("finalComment",reason);report.put("gradedAt",now());report.put("gradedBy",a.id());report.put("reviewStatus","graded");}
         runs.jdbc().update("UPDATE report_versions SET payload=? WHERE id=?",JsonUtil.write(report),reportId);runs.save(r,a,"复核个人报告"+reportId+"："+reason);return runs.detail(id,a);
     }
 }

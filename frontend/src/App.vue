@@ -11,11 +11,11 @@
         <div class="login-card">
           <div class="login-card-head">
             <h3>欢迎回来 👋</h3>
-            <p>请使用教师账号或学号登录系统</p>
+            <p>请使用账号或学号登录系统</p>
           </div>
           <div class="login-field">
             <label class="field-label" for="login-account">账号</label>
-            <input id="login-account" class="inp" autocomplete="username" placeholder="教师账号或学号" />
+            <input id="login-account" class="inp" autocomplete="username" placeholder="账号或学号" />
           </div>
           <div class="login-field">
             <label class="field-label" for="login-password">密码</label>
@@ -46,6 +46,10 @@
       <nav id="nav-teacher" class="topnav hidden" aria-label="教师导航">
         <button type="button" class="nav-item active" data-p="t-assign">下发任务</button>
         <button type="button" class="nav-item" data-p="t-grade">课堂记录与评阅</button>
+        <button type="button" class="nav-item" data-p="t-students">学生名单</button>
+      </nav>
+      <nav id="nav-admin" class="topnav hidden" aria-label="管理导航">
+        <button type="button" class="nav-item active" data-p="a-teachers">教师账号</button>
       </nav>
       <nav id="nav-student" class="topnav flow-nav hidden" aria-label="学生流程">
         <button type="button" class="nav-item active" data-p="s-home"><span class="fn-num">1</span>任务中心</button>

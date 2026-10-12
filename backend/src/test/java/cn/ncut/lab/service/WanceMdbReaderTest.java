@@ -26,13 +26,13 @@ class WanceMdbReaderTest {
         assertEquals(0.5,points.get(2).get("d")); // Preserve genuine unloading, never sort by displacement.
     }
     static boolean samplePresent() {
-        return java.nio.file.Files.isRegularFile(Path.of("D:/yanjing/01 北方工业大学土木力学实验室数字化升级项目/data(1)/2024-04-25-09-24-49.mdb"));
+        return java.nio.file.Files.isRegularFile(Path.of("../assets/device-data/2024-04-25-09-24-49.mdb"));
     }
 
     @Test
     @EnabledIf("samplePresent")
     void parseSampleMdb() throws Exception {
-        Path mdb = Path.of("D:/yanjing/01 北方工业大学土木力学实验室数字化升级项目/data(1)/2024-04-25-09-24-49.mdb");
+        Path mdb = Path.of("../assets/device-data/2024-04-25-09-24-49.mdb");
         Map<String, Object> data = WanceMdbReader.parse(mdb);
         assertEquals("wance_mdb", data.get("source"));
         assertTrue(((Number) data.get("pointCount")).intValue() > 100);

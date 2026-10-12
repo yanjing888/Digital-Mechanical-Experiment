@@ -18,9 +18,40 @@ import java.util.*;
 public class RunService {
     final JdbcTemplate db;
     final WanceDataService wance;
+    @org.springframework.beans.factory.annotation.Value("${lab.wance.fixed-source:true}")
+    boolean fixedWanceSource = true;
     public RunService(JdbcTemplate db, WanceDataService wance) { this.db=db; this.wance=wance; }
     public JdbcTemplate jdbc() { return db; }
+    public List<String> validateTrials(Object value) {
+        if(value==null)return ExperimentCatalog.TRIAL_IDS;
+        if(!(value instanceof List<?> ids)||ids.isEmpty())throw new ApiException(400,"请选择至少一个试验子项");
+        List<String> selected=ids.stream().map(RunService::str).distinct().toList();
+        if(!ExperimentCatalog.TRIAL_IDS.containsAll(selected))throw new ApiException(400,"试验子项无效");
+        return selected;
+    }
+    public void configureTask(String taskId,List<String> trials) {
+        db.update("INSERT INTO task_configs(task_id,payload) VALUES(?,?)",taskId,JsonUtil.write(Map.of("requiredTrials",trials)));
+    }
+    private void initializeClassroom(Map<String,Object> r,Map<String,Object> task) {
+        var rows=db.queryForList("SELECT payload FROM task_configs WHERE task_id=?",r.get("taskId"));
+        r.put("requiredTrials",rows.isEmpty()?ExperimentCatalog.TRIAL_IDS:JsonUtil.readMap(str(rows.get(0).get("payload")),Map.of()).getOrDefault("requiredTrials",ExperimentCatalog.TRIAL_IDS));
+        r.put("place",str(task.get("place")));r.put("scoreVersion",0);r.put("confirmationRequired",true);
+    }
     public record Actor(boolean teacher, String id) {}
+    public void enrichStudentSession(Map<String,Object> snapshot) {
+        Map<String,Object> student=map(snapshot.get("student"));
+        if(student.isEmpty())return;
+        Actor actor=new Actor(false,str(student.get("sid")));
+        var current=runs(actor).stream().filter(r->Objects.equals(r.get("taskId"),student.get("taskId"))).findFirst();
+        if(current.isEmpty())return;
+        var r=detail(str(current.get().get("id")),actor);
+        var reports=list(r.get("reports"));
+        var latest=reports.stream().max(Comparator.comparingInt(p->((Number)p.get("version")).intValue())).orElse(Map.of());
+        String state=!latest.isEmpty()&&!Boolean.TRUE.equals(latest.get("returned"))?"submitted":Boolean.TRUE.equals(r.get("archived"))?"lab_done":"pending".equals(r.get("status"))?"assigned":"in_lab";
+        student.put("status",state);student.put("groupName",r.get("groupName"));student.put("workflowRunId",r.get("id"));student.put("requiredTrials",r.get("requiredTrials"));
+        student.put("operationScore",r.get("operationScore"));student.put("personalScore",latest.get("finalScore"));student.put("personalComment",latest.get("finalComment"));
+        snapshot.put("mates",r.get("members"));
+    }
     static String id() { return UUID.randomUUID().toString(); }
     static String now() { return Instant.now().toString(); }
     static String str(Object v) { return v==null?"":v.toString().trim(); }
@@ -69,7 +100,7 @@ public class RunService {
                         + "OR g.id IN (SELECT DISTINCT group_id FROM students WHERE task_id=? AND group_id IS NOT NULL AND group_id<>'')",
                 taskId, taskId)) {
             String runId=runIdFor(taskId, str(group.get("id")));
-            List<Map<String,Object>> members=db.queryForList("SELECT sid,name FROM students WHERE task_id=? AND group_id=? ORDER BY sid",taskId,group.get("id"));
+            List<Map<String,Object>> members=db.queryForList("SELECT sid,name,cls FROM students WHERE task_id=? AND group_id=? ORDER BY sid",taskId,group.get("id"));
             if(db.queryForObject("SELECT COUNT(*) FROM experiment_runs WHERE id=?",Integer.class,runId)>0) {
                 syncRunMembers(runId, members, taskId);
                 continue;
@@ -79,6 +110,7 @@ public class RunService {
             r.put("id",runId); r.put("taskId",taskId); r.put("groupId",group.get("id")); r.put("groupName",group.get("name"));
             r.put("expName",t.get("exp_name")); r.put("expId",t.get("exp_id")); r.put("timeText",t.get("time_text"));
             r.put("attempt",1); r.put("members",members); r.put("createdAt",now()); r.put("status","pending"); r.put("classOpen",true);
+            initializeClassroom(r,t);
             r.put("photos",new ArrayList<>()); r.put("deductions",new ArrayList<>()); r.put("audit",new ArrayList<>());
             // Preserve legacy evidence, but do not relabel legacy replay points as a new device import.
             List<Map<String,Object>> legacy=db.queryForList("SELECT data_json,score,comment,deductions_json FROM group_reports WHERE task_id=? AND group_id=?",taskId,group.get("id"));
@@ -112,6 +144,7 @@ public class RunService {
         r.put("id",runId); r.put("taskId",taskId); r.put("groupId",groupId); r.put("groupName",group.get("name"));
         r.put("expName",t.get("exp_name")); r.put("expId",t.get("exp_id")); r.put("timeText",t.get("time_text"));
         r.put("attempt",1); r.put("members",members); r.put("createdAt",now()); r.put("status","pending"); r.put("classOpen",true);
+        initializeClassroom(r,t);
         r.put("photos",new ArrayList<>()); r.put("deductions",new ArrayList<>()); r.put("audit",new ArrayList<>());
         db.update("INSERT IGNORE INTO experiment_runs(id,task_id,group_id,payload,revision,created_at) VALUES(?,?,?,?,0,?)",runId,taskId,groupId,JsonUtil.write(r),r.get("createdAt"));
     }
@@ -209,15 +242,25 @@ public class RunService {
             try {
                 Map<String,Object> r=load(str(row.get("id")),actor,false);
                 Map<String,Object> s=new LinkedHashMap<>();
-                for(String key:List.of("id","taskId","groupName","expName","timeText","attempt","status","createdAt","members","classOpen","archived","retakeRequest")) s.put(key,r.get(key));
+                for(String key:List.of("id","taskId","groupName","expName","expId","timeText","place","attempt","status","createdAt","members","classOpen","archived","retakeRequest","requiredTrials")) s.put(key,r.get(key));
+                List<Map<String,Object>> trialItems=TrialRecords.combined(r)?TrialRecords.items(r):List.of();
+                int trialTotal=TrialRecords.combined(r)?trialItems.size():1;
+                int completedTrials=TrialRecords.combined(r)
+                        ? (int)trialItems.stream().filter(t->Boolean.TRUE.equals(t.get("dataReady"))&&Boolean.TRUE.equals(t.get("photoReady"))).count()
+                        : (TrialRecords.complete(r)?1:0);
+                ClassroomService.expose(r,actor);
                 s.put("operationScore",operationScore(r)); s.put("photoCount",list(r.get("photos")).size());
-                s.put("dataReady",!map(r.get("data")).isEmpty()); out.add(s);
+                s.put("dataReady",!map(r.get("data")).isEmpty());
+                s.put("collectionComplete",completedTrials==trialTotal);
+                s.put("completedTrials",completedTrials);s.put("trialTotal",trialTotal);
+                s.put("deductionCount",list(r.get("deductions")).stream().filter(d->!Boolean.TRUE.equals(d.get("voided"))).count());
+                for(String key:List.of("scoreVersion","scorePublishedAt"))s.put(key,r.get(key));
+                out.add(s);
             } catch (ApiException ignored) { /* 跳过单条损坏或无权的记录，避免整表加载失败 */ }
         }
         return out;
     }
     static double operationScore(Map<String,Object> r) {
-        if(r.get("finalScore")!=null)return score(r.get("finalScore"));
         return calculatedScore(r);
     }
     static double calculatedScore(Map<String,Object> r) {
@@ -225,6 +268,7 @@ public class RunService {
     }
     public Map<String,Object> detail(String id,Actor a) {
         Map<String,Object> r=load(id,a,false); r.put("operationScore",operationScore(r)); r.put("calculatedScore",calculatedScore(r));
+        ClassroomService.expose(r,a);
         r.put("adoptedFor",db.queryForList("SELECT sid FROM adopted_runs WHERE run_id=?",id).stream().map(m->m.get("sid")).toList());
         List<Map<String,Object>> reports=new ArrayList<>();
         for(Map<String,Object> row:db.queryForList("SELECT id,sid,version,payload,submitted_at FROM report_versions WHERE run_id=? ORDER BY submitted_at,version",id)) {
@@ -255,7 +299,8 @@ public class RunService {
     }
     public Map<String,Object> classroom(String id,Actor a) {
         Map<String,Object> r=load(id,a,false),out=new LinkedHashMap<>();
-        for(String key:List.of("deductions","classOpen","finalScore","finalComment"))out.put(key,r.get(key));
+        ClassroomService.expose(r,a);
+        for(String key:List.of("deductions","classOpen","finalScore","finalComment","revision","archived","archivedAt","scorePublishedAt","scoreVersion","confirmationRequired","myScoreConfirmed","myConfirmation","retakeRequest"))out.put(key,r.get(key));
         out.put("operationScore",operationScore(r));out.put("calculatedScore",calculatedScore(r));return out;
     }
     public Map<String,Object> legacy(String id,Actor a) {
@@ -283,6 +328,14 @@ public class RunService {
             for(String key:List.of("specimenId","deviceId","experimentAt","note"))if(!str(expected.get(key)).equals(str(r.get(key))))throw new ApiException(409,"组员已更新试件信息，请重新选择当前记录查看后再修改");
         }
         for(String k:List.of("specimenId","deviceId","experimentAt","note")) if(b.containsKey(k))r.put(k,str(b.get(k)));
+        if(b.containsKey("geometry")) {
+            Map<String,Object> g=map(b.get("geometry"));Map<String,Object> clean=new LinkedHashMap<>();
+            for(String key:List.of("area","gaugeLength")) {
+                double n;try { n=Double.parseDouble(str(g.get(key))); }catch(Exception e){throw new ApiException(400,"请填写有效截面积和原始长度");}
+                if(!Double.isFinite(n)||n<=0)throw new ApiException(400,"截面积和原始长度必须大于零");clean.put(key,n);
+            }
+            clean.put("strainSource","crosshead");r.put("geometry",clean);
+        }
         if(b.containsKey("experimentAt")&&!str(b.get("experimentAt")).isBlank()) {
             try { Instant.parse(str(b.get("experimentAt"))); } catch(Exception e) { throw new ApiException(400,"实验时间格式无效"); }
         }
@@ -349,10 +402,11 @@ public class RunService {
     public Map<String,Object> importWanceData(String id,Actor a,String fileName) {
         Map<String,Object> r=load(id,a,true); mutable(r);
         try {
-            Path mdb=TrialRecords.combined(r) && (fileName==null || fileName.isBlank())
-                    ? WanceMdbReader.latestMdb(wance.directory()) : wance.resolve(fileName);
+            Path mdb=fixedWanceSource?wance.resolve(wance.defaultFileName()):
+                    fileName==null||fileName.isBlank()?WanceMdbReader.latestMdb(wance.directory()):wance.resolve(fileName);
             byte[] content=Files.readAllBytes(mdb);
-            if (TrialRecords.combined(r)) {
+            if(!fixedWanceSource)rejectForeignData(id,content);
+            if (!fixedWanceSource && TrialRecords.combined(r)) {
                 for (Map<String,Object> trial : TrialRecords.items(r)) {
                     if (Objects.equals(trial.get("id"),r.get("trialId"))) continue;
                     String previousFile=str(map(trial.get("data")).get("fileId"));
@@ -361,6 +415,8 @@ public class RunService {
                 }
             }
             Map<String,Object> parsed=new LinkedHashMap<>(WanceMdbReader.parse(mdb));
+            parsed.put("sourceMode",fixedWanceSource?"fixed_file":"device_file");
+            if(fixedWanceSource)r.put("geometry",Map.of("area",Math.PI*25,"gaugeLength",100,"strainSource","crosshead","source","fixed_file_parameters"));
             String fid=file(id,a,"data",new MockBytesMultipart(mdb.getFileName().toString(),content),content,"application/x-msaccess","","ready");
             parsed.put("fileId",fid);parsed.put("fileName",mdb.getFileName().toString());parsed.put("importedAt",now());
             r.put("data",parsed);r.remove("analysis");r.remove("fractureSummary");
@@ -373,19 +429,29 @@ public class RunService {
     @Transactional
     public Map<String,Object> importData(String id,Actor a,MultipartFile f,int start,int force,int displacement,String unit) {
         Map<String,Object> r=load(id,a,true); mutable(r); byte[] content=bytes(f);
+        rejectForeignData(id,content);
         Map<String,Object> parsed=new LinkedHashMap<>(ExperimentDataParser.parse(ExperimentDataParser.rows(content,str(f.getOriginalFilename())),start,force,displacement,unit));
         String fid=file(id,a,"data",f,content,"application/octet-stream","","ready");
         parsed.put("fileId",fid);parsed.put("fileName",str(f.getOriginalFilename()));parsed.put("importedAt",now());parsed.put("source","device_file");
         parsed.put("mapping",Map.of("startRow",start,"forceColumn",force,"displacementColumn",displacement,"originalForceUnit",unit));
         r.put("data",parsed);r.remove("analysis");r.remove("fractureSummary");save(r,a,"导入原设备实验数据");return detail(id,a);
     }
+    void rejectForeignData(String id,byte[] content) {
+        try {
+            String hash=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content));
+            if(db.queryForObject("SELECT COUNT(*) FROM run_files WHERE kind='data' AND sha256=? AND run_id<>?",Integer.class,hash,id)>0)
+                throw new ApiException(409,"该文件已关联其他实验记录，请选择本组本次试验文件");
+        } catch(java.security.NoSuchAlgorithmException e){throw new IllegalStateException(e);}
+    }
     @Transactional
     public Map<String,Object> archive(String id,Actor a,Map<String,Object> b) {
         Map<String,Object> r=load(id,a,true);checkRevision(r,b);mutable(r);
         if(str(r.get("experimentAt")).isBlank()) r.put("experimentAt",now());
-        if(list(r.get("photos")).isEmpty())throw new ApiException(400,"请先采集断口照片");
-        if(map(r.get("data")).isEmpty())throw new ApiException(400,"断口已保存；请补齐本次原设备数据后归档");
         if (TrialRecords.combined(r)) TrialRecords.requireComplete(r);
+        else {
+            if(list(r.get("photos")).isEmpty())throw new ApiException(400,"请先采集断口照片");
+            if(map(r.get("data")).isEmpty())throw new ApiException(400,"断口已保存；请补齐本次原设备数据后归档");
+        }
         r.put("archived",true);r.put("archivedAt",now());r.put("status","archived");save(r,a,"提交实验操作记录");
         db.update("INSERT INTO run_archives(id,run_id,payload,created_at) VALUES(?,?,?,?)",id(),id,JsonUtil.write(TrialRecords.stored(r)),now());
         return detail(id,a);

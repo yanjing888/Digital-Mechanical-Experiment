@@ -36,6 +36,13 @@ public class DbInitializer implements CommandLineRunner {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """);
         jdbc.execute("""
+            CREATE TABLE IF NOT EXISTS admins (
+              username VARCHAR(64) PRIMARY KEY,
+              name VARCHAR(64) NOT NULL,
+              password_hash VARCHAR(255) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """);
+        jdbc.execute("""
             CREATE TABLE IF NOT EXISTS experiments (
               id VARCHAR(32) PRIMARY KEY,
               name VARCHAR(128) NOT NULL,
@@ -128,6 +135,7 @@ public class DbInitializer implements CommandLineRunner {
 
         ensureColumn("teachers", "username", "VARCHAR(64) NULL");
         ensureColumn("teachers", "password_hash", "VARCHAR(255) NULL");
+        ensureColumn("teachers", "active", "TINYINT NOT NULL DEFAULT 1");
         ensureColumn("students", "password_hash", "VARCHAR(255) NULL");
         ensureColumn("students", "tip", "TEXT NULL");
         ensureColumn("students", "fracture_analysis_json", "LONGTEXT NULL");
@@ -142,6 +150,11 @@ public class DbInitializer implements CommandLineRunner {
     }
 
     private void seedIfEmpty() {
+        Integer admins = jdbc.queryForObject("SELECT COUNT(*) FROM admins WHERE username='admin'", Integer.class);
+        if (admins != null && admins == 0) {
+            jdbc.update("INSERT INTO admins (username, name, password_hash) VALUES (?, ?, ?)",
+                    "admin", "管理员", PasswordUtil.hash("admin"));
+        }
         Integer teachers = jdbc.queryForObject("SELECT COUNT(*) FROM teachers", Integer.class);
         if (teachers != null && teachers == 0) {
             jdbc.update("INSERT INTO teachers (id, name, username, password_hash) VALUES (?, ?, ?, ?)",

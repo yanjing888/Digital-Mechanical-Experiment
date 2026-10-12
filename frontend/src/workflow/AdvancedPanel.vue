@@ -1,16 +1,28 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { call } from './api.js'
+import ToastNotice from './ToastNotice.vue'
 const props = defineProps({ run: Object, runs: Array, teacher: Boolean, tab: String, teacherMode: String, sid: String })
 const emit = defineEmits(['updated', 'selected'])
 const busy = ref(false), error = ref(''), notice = ref('')
 const retake = reactive({ name: '', reason: '', members: [] })
 const reason = ref('')
-const eligible = computed(() => [...new Map(props.runs.filter(r => r.taskId === props.run.taskId).flatMap(r => r.members).map(m => [m.sid, m])).values()])
+const students = ref([]), selectedClass = ref(''), query = ref(''), loadingStudents = ref(false), rosterError = ref('')
+const classes = computed(() => [...new Set(students.value.map(s => s.cls))])
+const eligible = computed(() => students.value)
+const filteredStudents = computed(() => eligible.value.filter(s => `${s.name} ${s.sid}`.toLowerCase().includes(query.value.trim().toLowerCase())))
+watch(selectedClass, () => { retake.members = []; query.value = '' })
 const stamp = t => t ? new Date(t).toLocaleString('zh-CN', { hour12: false }) : '—'
-watch(() => props.run.id, () => {
-  Object.assign(retake, { name: props.run.groupName + '临时组', reason: '', members: props.run.members.map(m => m.sid) })
+watch(() => props.run.id, async id => {
+  Object.assign(retake, { name: '课堂重做临时组', reason: '', members: [] })
   reason.value = ''; error.value = ''; notice.value = ''
+  students.value = []; selectedClass.value = ''; rosterError.value = ''; loadingStudents.value = true
+  try {
+    const result = await call(`/runs/${id}/retake-students`)
+    if (props.run.id !== id) return
+    students.value = result; selectedClass.value = result[0]?.cls || ''
+  } catch (e) { if (props.run.id === id) rosterError.value = e.message }
+  finally { if (props.run.id === id) loadingStudents.value = false }
 }, { immediate: true })
 async function send(path, body = {}, selected = false) {
   if (busy.value) return
@@ -23,21 +35,25 @@ async function send(path, body = {}, selected = false) {
     notice.value = '已保存'
   } catch (e) { error.value = e.message } finally { busy.value = false }
 }
+function clearToast() { if (error.value) error.value = ''; else if (rosterError.value) rosterError.value = ''; else notice.value = '' }
 </script>
 <template>
   <section class="wf-panel advanced-panel">
-    <p v-if="error" role="alert" class="wf-message error">{{ error }}</p><p v-if="notice" role="status" class="wf-message success">{{ notice }}</p><p v-if="busy" role="status">正在处理…</p>
+    <ToastNotice :message="error || rosterError || notice" :type="error || rosterError ? 'error' : 'success'" @close="clearToast" />
     <template v-if="teacher && teacherMode === 'retake'">
-      <p v-if="run.adoptedFor.length">已采用成绩：{{ run.members.filter(m => run.adoptedFor.includes(m.sid)).map(m => m.name).join('、') }}</p>
       <p v-if="run.retakeRequest">{{ run.retakeRequest.status === 'pending' ? '待处理' : '已安排' }} · {{ run.retakeRequest.reason }}</p>
-      <fieldset :disabled="busy">
+      <h3>安排学生重做</h3>
+      <fieldset :disabled="busy || loadingStudents">
         <label>临时组名称<input v-model="retake.name"></label>
-        <div class="wf-checks"><label v-for="m in eligible" :key="m.sid"><input v-model="retake.members" type="checkbox" :value="m.sid"> {{ m.name }}（{{ m.sid }}）</label></div>
+        <p class="wf-hint">共 {{ eligible.length }} 人，已选 {{ retake.members.length }} 人。</p>
+        <label>搜索学生<input v-model="query" type="search" placeholder="输入姓名或学号"></label>
+        <p v-if="loadingStudents">正在加载班级名单…</p>
+        <p v-else-if="!rosterError && !classes.length">当前实验成员尚未填写班级，请先在学生名单中补全班级信息。</p>
+        <div class="wf-actions"><button type="button" class="btn btn-ghost" :disabled="!eligible.length" @click="retake.members = eligible.map(s => s.sid)">全选本班</button><button type="button" class="btn btn-ghost" @click="retake.members = []">清空选择</button></div>
+        <div class="wf-checks retake-students"><label v-for="m in filteredStudents" :key="m.sid"><input v-model="retake.members" type="checkbox" :value="m.sid"> {{ m.name }}（{{ m.sid }}）</label></div>
+        <p v-if="eligible.length && !filteredStudents.length">没有匹配的学生</p>
         <label>重做安排依据<textarea v-model="retake.reason" rows="2"></textarea></label>
-        <button class="btn btn-primary" @click="send('retake', retake, true)">建立新的实验记录</button>
-        <hr>
-        <label>采用本次成绩的依据<textarea v-model="reason" rows="2"></textarea></label>
-        <button class="btn btn-ghost" :disabled="!run.archived" @click="send('adopt', { reason })">采用本次成绩</button>
+        <button class="btn btn-primary" :disabled="!retake.members.length || !retake.name.trim() || !retake.reason.trim()" @click="send('retake', retake, true)">建立新的实验记录</button>
       </fieldset>
     </template>
     <template v-else-if="teacher && teacherMode === 'assist'">
@@ -59,5 +75,6 @@ async function send(path, body = {}, selected = false) {
   </section>
 </template>
 <style>
+.retake-students{max-height:360px;overflow:auto;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));padding:12px;background:#f5f8f9;border-radius:8px}.advanced-panel fieldset>label{margin-bottom:16px}.advanced-panel fieldset>label>input,.advanced-panel fieldset>label>select{display:block;margin-top:8px}
 .advanced-panel{margin-top:0;border-top:0;border-radius:0 0 14px 14px}.ai-comment{white-space:pre-wrap}.advanced-panel label{display:block}.report-card--assist{margin-top:16px;padding:18px}.wf-empty--inline{padding:16px;margin:8px 0;text-align:left;background:#f5f8f9;border-radius:8px;color:#70828a}
 </style>

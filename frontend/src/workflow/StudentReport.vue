@@ -6,7 +6,7 @@ const props = defineProps({ run: Object, draft: Object, reports: Array, locked: 
 const emit = defineEmits(['upload', 'submit', 'download'])
 const selected = ref(null), picker = ref(null)
 const current = computed(() => selected.value || props.draft || props.reports?.at(-1))
-const disabled = computed(() => props.busy || !props.run.archived || props.locked)
+const disabled = computed(() => props.busy || props.locked)
 const status = computed(() => props.locked ? '已提交' : props.reports?.at(-1)?.returned ? '待修改' : props.draft ? '待提交' : '待上传')
 const stamp = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
 watch(() => [props.run.id, props.draft?.fileId], () => { selected.value = null })
@@ -22,7 +22,6 @@ function choose(event) {
     <div class="report-workspace">
       <aside class="report-sidebar">
         <header class="report-sidebar__head"><h3>个人报告</h3><span class="report-status" :class="{ 'is-submitted': locked }">{{ status }}</span></header>
-        <p class="report-instruction">上传本人实验报告，核对原文后完成正式提交。</p>
         <button v-if="template" type="button" class="btn btn-ghost report-template" :disabled="busy" @click="emit('download', { fileId: template.id, fileName: template.name })">下载报告模板</button>
         <div class="report-upload">
           <strong>{{ draft ? '报告附件' : '上传报告文件' }}</strong>
@@ -33,10 +32,12 @@ function choose(event) {
           <small v-if="draft">上传于 {{ stamp(draft.uploadedAt) }}</small>
         </div>
         <p v-if="!run.archived" class="report-alert">请先在「现场实验 · 操作记录」提交实验操作记录。</p>
+        <p v-else-if="run.classOpen" class="report-alert">待教师确认最终扣分并发布操作成绩。</p>
+        <p v-else-if="!run.myScoreConfirmed" class="report-alert">请先确认本次最终操作成绩。</p>
         <p v-else-if="locked" class="report-instruction">报告已提交并锁定。如需修改，请联系教师退回。</p>
         <p v-else-if="reports?.at(-1)?.returned" class="report-alert">教师已退回：{{ reports.at(-1).returnReason || '请修改报告后重新提交。' }}</p>
         <p v-if="draft?.warning" class="report-alert">{{ draft.warning }}</p>
-        <div class="report-submit"><button type="button" class="btn btn-primary" :disabled="disabled || !draft" @click="emit('submit')">{{ locked ? '已正式提交' : '正式提交报告' }}</button><small v-if="!locked">上传文件后，仍需点击此按钮完成提交。</small></div>
+        <div class="report-submit"><button type="button" class="btn btn-primary" :disabled="disabled || !draft || !run.archived || run.classOpen || !run.myScoreConfirmed" @click="emit('submit')">{{ locked ? '已正式提交' : '正式提交报告' }}</button></div>
       </aside>
       <section class="report-document">
         <header class="report-document__head"><div><h3>报告预览</h3><p>{{ current?.fileName || '尚未上传报告' }}</p></div><div class="report-document__actions"><button v-if="selected && draft && selected.fileId !== draft.fileId" type="button" class="btn btn-ghost" @click="selected = null">当前附件</button><button v-if="current" type="button" class="btn btn-ghost" :disabled="busy" @click="emit('download', current)">下载原文件</button></div></header>

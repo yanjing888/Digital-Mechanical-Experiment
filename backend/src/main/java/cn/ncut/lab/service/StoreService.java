@@ -620,12 +620,16 @@ public class StoreService {
         List<Map<String, Object>> exps = jdbc.queryForList("SELECT * FROM experiments WHERE id = ?", expId);
         if (exps.isEmpty()) throw new ApiException(400, "实验不存在");
         if (groupIds == null || groupIds.isEmpty()) throw new ApiException(400, "请选择小组");
+        if (new HashSet<>(groupIds).size() != groupIds.size()) throw new ApiException(400, "小组不能重复选择");
         Map<String, Object> exp = exps.get(0);
         String tipText = str(tip);
 
-        List<Map<String, Object>> ungrouped = jdbc.queryForList("SELECT sid FROM students WHERE group_id IS NULL OR group_id = ''");
-        if (!ungrouped.isEmpty()) throw new ApiException(400, "还有学生未分配组别，请全部分组后再下发");
         for (String gid : groupIds) {
+            List<Map<String, Object>> locked = jdbc.queryForList("SELECT id, name FROM lab_groups WHERE id = ? FOR UPDATE", gid);
+            if (locked.isEmpty()) throw new ApiException(400, "所选小组不存在");
+            Integer assigned = jdbc.queryForObject("SELECT COUNT(*) FROM task_groups WHERE group_id = ?", Integer.class, gid);
+            if (assigned != null && assigned > 0)
+                throw new ApiException(409, "小组“" + locked.get(0).get("name") + "”已下发任务，不能重复下发");
             if (jdbc.queryForList("SELECT sid FROM students WHERE group_id = ?", gid).isEmpty())
                 throw new ApiException(400, "所选小组存在空组，请先完成分组");
         }
@@ -809,10 +813,19 @@ public class StoreService {
         String pwd = password == null ? "" : password;
         if (acc.isEmpty() || pwd.isEmpty()) throw new ApiException(400, "请输入账号和密码");
 
+        List<Map<String, Object>> admins = jdbc.queryForList(
+                "SELECT username, name, password_hash FROM admins WHERE username = ? LIMIT 1", acc);
+        if (!admins.isEmpty()) {
+            if (!PasswordUtil.verify(pwd, (String) admins.get(0).get("password_hash")))
+                throw new ApiException(401, "账号或密码错误");
+            String name = (String) admins.get(0).get("name");
+            return Map.of("token", createSession("admin", null, name), "role", "admin", "adminName", name);
+        }
+
         List<Map<String, Object>> teachers = jdbc.queryForList(
-                "SELECT id, name, username, password_hash FROM teachers WHERE username = ? LIMIT 1", acc);
+                "SELECT id, name, username, password_hash, active FROM teachers WHERE username = ? LIMIT 1", acc);
         if (!teachers.isEmpty()) {
-            if (!PasswordUtil.verify(pwd, (String) teachers.get(0).get("password_hash")))
+            if (!asBool(teachers.get(0).get("active")) || !PasswordUtil.verify(pwd, (String) teachers.get(0).get("password_hash")))
                 throw new ApiException(401, "账号或密码错误");
             String teacherName = (String) teachers.get(0).get("name");
             String token = createSession("teacher", null, teacherName);
@@ -854,6 +867,7 @@ public class StoreService {
     public Map<String, Object> sessionSnapshot(String token) {
         Map<String, Object> sess = getSession(token);
         if (sess == null) return null;
+        if ("admin".equals(sess.get("role"))) return Map.of("role", "admin", "adminName", sess.get("teacher_name"));
         Map<String, Object> meta = listMeta();
         if ("teacher".equals(sess.get("role"))) {
             Map<String, Object> out = new LinkedHashMap<>();

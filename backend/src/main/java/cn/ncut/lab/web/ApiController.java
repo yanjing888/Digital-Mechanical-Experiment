@@ -59,6 +59,7 @@ public class ApiController {
     public Map<String, Object> session(HttpServletRequest req) {
         Map<String, Object> snap = store.sessionSnapshot(Sessions.tokenFrom(req));
         if (snap == null) throw new ApiException(401, "会话无效");
+        runs.enrichStudentSession(snap);
         return snap;
     }
 
@@ -146,8 +147,10 @@ public class ApiController {
     }
 
     @PostMapping("/tasks")
+    @org.springframework.transaction.annotation.Transactional
     public Map<String, Object> createTask(HttpServletRequest req, @RequestBody Map<String, Object> body) {
         Sessions.requireTeacher(req);
+        List<String> trials=runs.validateTrials(body.get("requiredTrials"));
         runs.preserveAssignments(strList(body.get("groupIds")));
         Map<String, Object> task = store.createTask(
                 str(body.get("expId")),
@@ -160,6 +163,7 @@ public class ApiController {
         );
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("task", task);
+        runs.configureTask(str(task.get("id")),trials);
         runs.provision(str(task.get("id")));
         out.put("tasks", store.listTasks());
         return out;

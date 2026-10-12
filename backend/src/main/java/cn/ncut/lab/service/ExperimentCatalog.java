@@ -7,7 +7,10 @@ public final class ExperimentCatalog {
     private ExperimentCatalog() {}
 
     public static final String COMBINED = "TENSION_COMPRESSION";
+    public static final String TORSION = "TORSION";
+    public static final String BENDING = "BENDING";
     public static final List<String> IDS = List.of(COMBINED);
+    public static final List<String> DISPLAY_IDS = List.of(COMBINED,TORSION,BENDING);
     public static final List<String> TRIAL_IDS = List.of("STEEL_TENS", "CAST_TENS", "STEEL_COMP", "CAST_COMP");
 
     public static final Map<String, String> NAMES = Map.of(
@@ -15,7 +18,9 @@ public final class ExperimentCatalog {
             "STEEL_TENS", "钢的拉伸",
             "CAST_TENS", "铸铁的拉伸",
             "STEEL_COMP", "钢的压缩",
-            "CAST_COMP", "铸铁的压缩");
+            "CAST_COMP", "铸铁的压缩",
+            TORSION, "扭转实验",
+            BENDING, "弯曲实验");
 
     public static boolean isKnown(String expId) {
         return expId != null && NAMES.containsKey(expId);

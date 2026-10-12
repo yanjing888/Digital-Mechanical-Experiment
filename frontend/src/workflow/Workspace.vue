@@ -1,14 +1,18 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { call as workflowCall, form, fileBlob, downloadFile } from './api.js'
 import AdvancedPanel from './AdvancedPanel.vue'
 import CurveChart from './CurveChart.vue'
 import StressStrainChart from './StressStrainChart.vue'
-import { isTensileTrial } from './stress-strain.js'
+import { isStressStrainTrial } from './stress-strain.js'
 import OperationRecordDoc from './OperationRecordDoc.vue'
 import StudentReport from './StudentReport.vue'
 import ReportPreview from './ReportPreview.vue'
 import ReportReview from './ReportReview.vue'
+import ScoreConfirmation from './ScoreConfirmation.vue'
+import ReportDesk from './ReportDesk.vue'
+import Gradebook from './Gradebook.vue'
+import ToastNotice from './ToastNotice.vue'
 const props = defineProps({ page: String, teacher: Boolean, sid: String, taskId: String })
 const activeTrial = ref('STEEL_TENS')
 function call(path, method = 'GET', body) {
@@ -33,10 +37,21 @@ const labEmptyMessage = computed(() => {
   return '暂无实验任务，请先在「任务中心」查看或联系教师。'
 })
 const tab = ref(props.teacher ? 'deduct' : props.page === 's-report' ? 'report' : 'data')
-const operationConfirmed = ref(false)
+const usbCameraName = 'HY-2307'
+const missingTrials = computed(() => (run.value?.trialItems || []).filter(t => !t.dataReady || !t.photoReady))
+const allTrialsComplete = computed(() => run.value?.trialItems
+  ? run.value.trialItems.length > 0 && missingTrials.value.length === 0
+  : labStepDone('data') && labStepDone('capture'))
+const completedTrialCount = computed(() => (run.value?.trialItems || []).filter(t => t.dataReady && t.photoReady).length)
+async function confirmScore(values) { run.value = await call(`/runs/${run.value.id}/score-confirmation`, 'POST', { ...values, scoreVersion: run.value.scoreVersion }) }
+async function requestRetake(reason) {
+  run.value = await call(`/runs/${run.value.id}/retake-request`, 'POST', { reason })
+  await listRuns()
+}
 const teacherMenus = [
   { id: 'classroom', title: '课堂管理', children: [{ id: 'deduct', title: '现场扣分' }, { id: 'record', title: '实验记录' }] },
   { id: 'review', title: '报告与补做', children: [{ id: 'report', title: '报告批阅与查重' }, { id: 'retake', title: '重做安排' }] },
+  { id: 'grades', title: '成绩管理', children: [{ id: 'grades', title: '实验成绩总表' }] },
   { id: 'settings', title: '教学设置', children: [{ id: 'settings', title: '扣分项配置' }] },
 ]
 const collapsedMenus = reactive({})
@@ -78,7 +93,6 @@ const selectedStudent = computed(() => groupReportStudents.value.find(s => s.sid
 const meta = reactive({ specimenId: '', deviceId: '', experimentAt: '', note: '' })
 let metadataBaseline = {}
 const selectionKey = `lab-run-selection-${props.teacher ? 'teacher' : `${props.sid}-${props.taskId}`}`
-const preview = ref(null), dataFile = ref(null), mapping = reactive({ start: 2, force: 1, displacement: 0, unit: 'kN' })
 const angle = ref('正面'), images = reactive({}), video = ref(null), camera = ref(false)
 let stream, timer, disposed = false
 const newId = () => crypto.randomUUID()
@@ -89,8 +103,33 @@ const reportGrades = reactive({}), reportPreview = ref(''), requestId = ref(cryp
 const myDraft = computed(() => run.value?.drafts?.[props.sid])
 const myReports = computed(() => run.value?.reports || [])
 const workflowTabs = computed(() => [['capture', '断口采集'], ['data', '实验数据'], ['operation', '操作记录'], ['report', '个人报告']])
-const WANCE_DEFAULT_MDB = '2024-04-25-09-24-49.mdb'
-const labSteps = [{ id: 'data', title: '数据采集' }, { id: 'capture', title: '试件与断口' }, { id: 'operation', title: '操作记录' }]
+const teacherTasks = computed(() => [...new Map(runs.value.map(r => [r.taskId, r])).values()])
+const classroomRuns = computed(() => {
+  const taskId = run.value?.taskId
+  const priority = item => item.retakeRequest?.status === 'pending' ? 0
+    : item.archived && item.classOpen ? 1
+      : item.archived && !item.classOpen ? 2
+        : item.collectionComplete && !item.archived ? 3
+          : !item.collectionComplete ? 4 : 5
+  return runs.value.filter(item => item.taskId === taskId).sort((a, b) => priority(a) - priority(b) || String(a.groupName).localeCompare(String(b.groupName), 'zh-CN'))
+})
+const classroomCounts = computed(() => ({
+  submitted: classroomRuns.value.filter(item => item.archived).length,
+  grading: classroomRuns.value.filter(item => item.archived && item.classOpen).length,
+  published: classroomRuns.value.filter(item => item.archived && !item.classOpen).length,
+  collecting: classroomRuns.value.filter(item => !item.archived).length,
+}))
+function classroomState(item) {
+  if (item.retakeRequest?.status === 'pending') return { text: '申请重做', kind: 'warn' }
+  if (!item.collectionComplete) return { text: '实验进行中', kind: '' }
+  if (!item.archived) return { text: '待提交记录', kind: 'warn' }
+  if (item.classOpen) return { text: '待确认扣分', kind: 'attention' }
+  return { text: '成绩已发布', kind: 'ok' }
+}
+const collectionSteps = [{ id: 'data', title: '数据采集' }, { id: 'capture', title: '试件与断口' }]
+const labSteps = computed(() => run.value?.trialItems
+  ? collectionSteps
+  : [...collectionSteps, { id: 'operation', title: '操作记录' }])
 const isLabPage = computed(() => !props.teacher && props.page === 's-lab')
 const isReportPage = computed(() => !props.teacher && props.page === 's-report')
 const studentPageTitle = computed(() => {
@@ -108,40 +147,54 @@ function labStepDone(id) {
   return false
 }
 function suggestLabStep() {
-  for (const s of labSteps) if (!labStepDone(s.id)) return s.id
+  if (run.value?.trialItems) {
+    const incomplete = run.value.trialItems.find(t => !t.dataReady || !t.photoReady)
+    if (!incomplete) return 'operation'
+    activeTrial.value = incomplete.id
+    return incomplete.dataReady ? 'capture' : 'data'
+  }
+  for (const s of labSteps.value) if (!labStepDone(s.id)) return s.id
   return 'operation'
 }
 function goLabStep(id) {
-  if (!props.teacher && isLabPage.value) {
-    const idx = labSteps.findIndex(s => s.id === id)
-    if (idx > 0 && !labStepDone(labSteps[idx - 1].id)) return
-  }
   stopCamera(); tab.value = id
 }
-const labStepIndex = computed(() => labSteps.findIndex(s => s.id === tab.value))
-const nextLabStepTitle = computed(() => labSteps[labStepIndex.value + 1]?.title || '')
+const labStepIndex = computed(() => labSteps.value.findIndex(s => s.id === tab.value))
+const nextIncompleteTrial = computed(() => (run.value?.trialItems || []).find(t => t.id !== run.value?.trialId && (!t.dataReady || !t.photoReady)))
+const nextLabStepTitle = computed(() => {
+  if (run.value?.trialItems && tab.value === 'capture') return nextIncompleteTrial.value ? `${nextIncompleteTrial.value.name} · 数据采集` : '本课次最终操作记录'
+  return labSteps.value[labStepIndex.value + 1]?.title || ''
+})
 async function nextLabStep() {
-  if (labStepIndex.value >= 0 && labStepIndex.value < labSteps.length - 1) {
-    if (tab.value === 'capture' && labStepDone('capture') && labStepDone('data') && !run.value?.fractureSummary) await runFractureAnalysis()
-    tab.value = labSteps[labStepIndex.value + 1].id
+  if (tab.value === 'data') { tab.value = 'capture'; return }
+  if (tab.value !== 'capture') return
+  if (labStepDone('capture') && labStepDone('data') && !run.value?.fractureSummary) await runFractureAnalysis()
+  if (run.value?.trialItems) {
+    if (nextIncompleteTrial.value) await pickTrial(nextIncompleteTrial.value.id)
+    else tab.value = 'operation'
+    return
   }
+  tab.value = 'operation'
 }
-function prevLabStep() { if (labStepIndex.value > 0) tab.value = labSteps[labStepIndex.value - 1].id }
+function prevLabStep() {
+  if (tab.value === 'operation') { tab.value = 'capture'; return }
+  if (labStepIndex.value > 0) tab.value = labSteps.value[labStepIndex.value - 1].id
+}
 async function runFractureAnalysis() {
   if (!run.value?.photos?.length) return
   run.value = await call(`/runs/${run.value.id}/analyze`, 'POST')
 }
-function onPhotoPick(event) {
+async function onPhotoPick(event) {
   const input = event.target
   const file = input.files?.[0]
-  action(async () => {
+  if (!file) return
+  try { await action(async () => {
     if (!file) throw new Error('请选择 JPEG 或 PNG 图片')
     await uploadPhoto(file)
-    if (input) input.value = ''
     const analyzeError = run.value?.analyzeError
     if (analyzeError) { delete run.value.analyzeError; throw new Error(analyzeError) }
-    if (!run.value?.fractureSummary) throw new Error('断口分析未生成，请确认断口服务已启动（8090）')
-  }, '已替换断口照片并完成分析')
+    if (!run.value?.fractureSummary) throw new Error('照片已保存，断口分析暂未生成')
+  }, '已替换断口照片并完成分析') } finally { input.value = '' }
 }
 function goStudentNav(page) { document.querySelector(`.nav-item[data-p="${page}"]`)?.click() }
 const latestOwn = computed(() => myReports.value.filter(r => r.sid === props.sid).at(-1))
@@ -158,7 +211,7 @@ const teacherRunGroups = computed(() => {
 async function loadSettings() { settings.value = await call('/settings') }
 async function saveSettings() { settings.value = await call('/settings', 'PUT', { revision: settings.value.revision, catalog: settings.value.catalog, catalogConfirmed: settings.value.catalogConfirmed }) }
 async function control(actionName) {
-  const defaults = { close: '教师结束课堂记录', open: '教师重新开放课堂', return: '教师退回操作记录', clearGrade: '按扣分明细恢复计分' }
+  const defaults = { close: '教师确认最终扣分并发布成绩', open: '教师重新开放扣分调整', return: '教师退回学生补采或修正', clearGrade: '按扣分明细恢复计分' }
   let reason = (controlReason.value || grade.reason || '').trim()
   if (!reason && defaults[actionName]) reason = defaults[actionName]
   run.value = await call(`/runs/${run.value.id}/control`, 'POST', { action: actionName, revision: run.value.revision, reason, score: grade.score, comment: grade.comment })
@@ -193,6 +246,10 @@ async function action(fn, message = '') {
   busy.value = true; error.value = ''; notice.value = ''
   try { await fn(); if (!disposed) notice.value = message } catch (e) { if (!disposed) error.value = e.message } finally { busy.value = false }
 }
+function clearToast() {
+  if (error.value) error.value = ''
+  else notice.value = ''
+}
 async function bootWorkflow() {
   busy.value = true
   error.value = ''
@@ -200,7 +257,7 @@ async function bootWorkflow() {
     await loadSettings()
     await listRuns()
     if (runs.value.length) {
-      const id = runs.value.find(r => r.id === sessionStorage.getItem(selectionKey))?.id || runs.value[0].id
+      const id = runs.value.find(r => r.id === sessionStorage.getItem(selectionKey))?.id || runs.value.find(r => !props.teacher && r.taskId === props.taskId)?.id || runs.value[0].id
       await select(id)
     }
   } catch (e) {
@@ -214,7 +271,7 @@ async function refreshLab() {
   error.value = ''
   try {
     await listRuns()
-    if (runs.value.length) await select(runs.value.find(r => r.id === sessionStorage.getItem(selectionKey))?.id || runs.value[0].id)
+    if (runs.value.length) await select(runs.value.find(r => r.id === sessionStorage.getItem(selectionKey))?.id || runs.value.find(r => !props.teacher && r.taskId === props.taskId)?.id || runs.value[0].id)
   } catch (e) {
     if (!disposed) error.value = e.message || '加载失败'
   } finally {
@@ -223,7 +280,7 @@ async function refreshLab() {
 }
 async function listRuns() {
   error.value = ''
-  const currentTaskRuns = items => props.teacher ? items : items.filter(item => item.taskId === props.taskId)
+    const currentTaskRuns = items => items
   try { runs.value = currentTaskRuns(await call('/runs')) } catch (e) {
     runs.value = []
     error.value = e.message || '加载实验记录失败'
@@ -245,7 +302,14 @@ async function listRuns() {
 watch(run, value => {
   if (!value) return
   const item = runs.value.find(r => r.id === value.id)
-  if (item) Object.assign(item, { status: value.status, photoCount: value.photos.length, dataReady: !!value.data, operationScore: value.operationScore, classOpen: value.classOpen, archived: value.archived })
+  if (item) Object.assign(item, {
+    status: value.status, photoCount: value.photos.length, dataReady: !!value.data,
+    operationScore: value.operationScore, classOpen: value.classOpen, archived: value.archived,
+    collectionComplete: value.trialItems ? value.trialItems.every(t => t.dataReady && t.photoReady) : !!value.data && !!value.photos.length,
+    completedTrials: value.trialItems ? value.trialItems.filter(t => t.dataReady && t.photoReady).length : value.data && value.photos.length ? 1 : 0,
+    trialTotal: value.trialItems?.length || 1, retakeRequest: value.retakeRequest,
+    deductionCount: (value.deductions || []).filter(d => !d.voided).length,
+  })
 })
 async function photos() {
   const allPhotos = run.value?.trialItems ? run.value.trialItems.flatMap(t => t.photos || []) : run.value?.photos || []
@@ -260,7 +324,7 @@ function setMeta() {
   Object.assign(meta, { specimenId: r.specimenId || '', deviceId: r.deviceId || '', note: r.note || '', experimentAt: r.experimentAt ? new Date(new Date(r.experimentAt).getTime() - new Date(r.experimentAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '' })
 }
 async function select(id) {
-  stopCamera(); run.value = await call(`/runs/${id}`); setMeta(); preview.value = null; dataFile.value = null
+  stopCamera(); run.value = await call(`/runs/${id}`); setMeta()
   sessionStorage.setItem(selectionKey, id)
   Object.assign(grade, { score: run.value.operationScore, comment: run.value.finalComment || '', reason: '' })
   deduction.items = []; deduction.reason = ''; controlReason.value = ''
@@ -286,12 +350,29 @@ async function uploadPhoto(file) {
   await photos()
 }
 async function startCamera() {
+  stopCamera()
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器不支持拍摄，请上传照片；远程摄像头访问需使用HTTPS')
-  stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, facingMode: { ideal: 'environment' } }, audio: false })
-  camera.value = true
-  await new Promise(resolve => setTimeout(resolve, 0))
-  if (disposed) { stopCamera(); return }
-  video.value.srcObject = stream; await video.value.play()
+  try {
+    let devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput')
+    if (!devices.some(d => d.label)) {
+      const permissionStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+      permissionStream.getTracks().forEach(track => track.stop())
+      devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput')
+    }
+    const usbCamera = devices.find(d => d.label.trim().toLowerCase().includes(usbCameraName.toLowerCase()))
+    if (!usbCamera?.deviceId) throw new Error(`${usbCameraName} USB摄像头未连接或未被浏览器识别`)
+    stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: usbCamera.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
+    camera.value = true
+    await nextTick()
+    if (disposed || tab.value !== 'capture' || !video.value) { stopCamera(); return }
+    video.value.srcObject = stream
+    await video.value.play()
+  } catch (error) {
+    stopCamera()
+    if (error?.name === 'NotAllowedError') throw new Error('请允许浏览器使用摄像头后重试')
+    if (error?.name === 'NotFoundError' || error?.name === 'OverconstrainedError') throw new Error(`${usbCameraName} USB摄像头不可用，请检查连接后重试`)
+    throw error
+  }
 }
 function stopCamera() { stream?.getTracks().forEach(t => t.stop()); stream = null; camera.value = false }
 async function snap() {
@@ -301,12 +382,13 @@ async function snap() {
   const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.93))
   if (!blob) throw new Error('拍摄失败，请重试')
   await uploadPhoto(new File([blob], `断口-${Date.now()}.jpg`, { type: 'image/jpeg' }))
-  if (!run.value?.fractureSummary) throw new Error('断口分析未生成，请确认断口服务已启动（8090）')
+  const analyzeError = run.value?.analyzeError
+  if (analyzeError) { delete run.value.analyzeError; throw new Error(analyzeError) }
+  if (!run.value?.fractureSummary) throw new Error('照片已保存，断口分析暂未生成')
   stopCamera()
 }
-async function chooseData(file) { if (!file) return; dataFile.value = file; preview.value = await call('/preview', 'POST', form(file)) }
 async function syncWanceData() {
-  run.value = await call(`/runs/${run.value.id}/data/wance`, 'POST', run.value?.trialItems ? {} : { fileName: WANCE_DEFAULT_MDB })
+  run.value = await call(`/runs/${run.value.id}/data/wance`, 'POST', {})
   setMeta()
 }
 watch(() => props.teacher, teacher => {
@@ -318,11 +400,11 @@ watch(() => props.page, page => {
   if (page === 's-report') tab.value = 'report'
   else if (page === 's-lab') tab.value = suggestLabStep()
 }, { immediate: true })
-watch(() => run.value?.id, () => { operationConfirmed.value = false })
 watch(() => run.value?.archived, archived => {
   if (archived && isLabPage.value) tab.value = 'operation'
 })
 watch(tab, async value => {
+  if (value !== 'capture') stopCamera()
   if (!run.value) return
   if (value === 'operation' || value === 'record') await photos()
   if (props.teacher && (value === 'record' || value === 'deduct')) {
@@ -338,27 +420,34 @@ watch(tab, async value => {
   if (labStepDone('data') && labStepDone('capture') && !run.value.fractureSummary && !run.value.archived) await action(runFractureAnalysis)
 })
 async function submitOperationRecord() {
+  run.value = await call(`/runs/${run.value.id}`)
   run.value = await call(`/runs/${run.value.id}/archive`, 'POST', { revision: run.value.revision })
   await listRuns()
 }
 onMounted(() => {
   bootWorkflow()
   timer = setInterval(async () => {
-    if (busy.value || !run.value || props.teacher) return
+    if (busy.value || !run.value) return
     const id = run.value.id
     try {
-      const fresh = await call(`/runs/${id}/classroom`)
+      const [fresh, summaries] = await Promise.all([
+        call(`/runs/${id}/classroom`),
+        props.teacher ? call('/runs') : Promise.resolve(null),
+      ])
       if (disposed || busy.value || run.value?.id !== id) return
+      if (summaries) runs.value = summaries
+      if (props.teacher) run.value.revision = fresh.revision
       // Only refresh classroom facts; do not overwrite in-progress student input or its revision.
-      for (const key of ['deductions', 'operationScore', 'calculatedScore', 'classOpen', 'finalScore', 'finalComment']) run.value[key] = fresh[key]
+      for (const key of ['deductions', 'operationScore', 'calculatedScore', 'classOpen', 'finalScore', 'finalComment', 'archived', 'archivedAt', 'scorePublishedAt', 'scoreVersion', 'myScoreConfirmed', 'myConfirmation', 'retakeRequest']) run.value[key] = fresh[key]
     } catch { /* Background refresh never disrupts in-progress input. */ }
-  }, 10000)
+  }, 5000)
 })
 onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.values(images).forEach(URL.revokeObjectURL); if (reportPreview.value) URL.revokeObjectURL(reportPreview.value) })
 </script>
 
 <template>
   <section class="workflow" :class="{ 'workflow--student': !teacher, 'workflow--teacher': teacher }">
+    <ToastNotice :message="error || notice" :type="error ? 'error' : 'success'" @close="clearToast" />
     <header v-if="!teacher" class="workflow-heading workflow-heading--student"><h1>{{ studentPageTitle }}</h1></header>
 
     <div class="workflow-layout workflow-layout--solo" :class="{ 'workflow-layout--teacher': teacher }">
@@ -383,121 +472,119 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
         <p v-if="teacher" class="wf-teacher-breadcrumb">{{ teacherLocation }}</p>
     <div v-if="teacher && showSettings" class="wf-settings-page">
       <section class="wf-panel" aria-labelledby="deduction-config-title">
-        <header class="wf-config-drawer__head"><div><p class="eyebrow">课堂操作记录</p><h2 id="deduction-config-title">扣分项配置</h2><p>设置现场记录时可选的扣分项与对应分值。</p></div><button type="button" class="btn btn-ghost wf-config-close" aria-label="关闭扣分项配置" @click="showSettings = false">×</button></header>
+        <header class="wf-config-drawer__head"><div><h2 id="deduction-config-title">扣分项配置</h2></div><button type="button" class="btn btn-ghost wf-config-close" aria-label="关闭扣分项配置" @click="showSettings = false">×</button></header>
         <fieldset :disabled="busy"><div class="wf-deduction-config"><div class="wf-deduction-config__labels"><span>扣分项</span><span>扣分值</span><span>操作</span></div><div v-for="(item,i) in settings.catalog" :key="item.id" class="wf-deduction-config__row"><input v-model="item.label" :aria-label="`第 ${i + 1} 个扣分项名称`" placeholder="例如：实验运行时尝试打开保护罩"><label><input v-model.number="item.points" :aria-label="`第 ${i + 1} 个扣分项分值`" type="number" min="0" max="100"><span>分</span></label><button type="button" class="btn btn-ghost" :aria-label="`移除${item.label || '该扣分项'}`" @click="settings.catalog.splice(i,1)">移除</button></div></div><button type="button" class="btn btn-ghost" @click="settings.catalog.push({ id: newId(), label: '', points: 0 })">+ 增加扣分项</button><label class="wf-config-confirm"><input v-model="settings.catalogConfirmed" type="checkbox"> 我已确认扣分项目和分值，可用于课堂记录</label><div class="wf-config-actions"><button class="btn btn-primary" @click="action(saveSettings, '扣分项已保存')">保存扣分项</button><button type="button" class="btn btn-ghost" @click="showSettings = false">取消</button></div></fieldset>
       </section>
     </div>
-        <p v-if="teacher && !run && !showSettings" class="wf-empty wf-empty--page">暂无实验记录，请先下发实验任务。</p>
+        <Gradebook v-if="teacher && tab === 'grades' && !showSettings" />
+        <p v-if="teacher && !run && !showSettings && tab !== 'grades'" class="wf-empty wf-empty--page">暂无实验记录，请先下发实验任务。</p>
         <template v-if="run && (!teacher || !showSettings)">
-        <header v-if="teacher" class="wf-teacher-bar">
+        <header v-if="teacher && tab !== 'grades'" class="wf-teacher-bar">
           <div class="wf-teacher-bar__main">
-            <p class="eyebrow">课堂记录与评阅</p>
-            <h2>{{ run.expName }} · {{ run.groupName }} · 第 {{ run.attempt }} 次</h2>
-            <p class="wf-teacher-members">{{ run.members.map(m => m.name).join('、') }}</p>
-            <div class="wf-teacher-tags">
+            <h2>{{ run.expName }} · {{ tab === 'report' ? (run.timeText || stamp(run.createdAt)) : `${run.groupName} · 第 ${run.attempt} 次` }}</h2>
+            <p v-if="tab !== 'report'" class="wf-teacher-members">{{ run.members.map(m => `${m.name}${m.cls ? '（' + m.cls + '）' : ''}`).join('、') }}</p>
+            <div v-if="tab !== 'report'" class="wf-teacher-tags">
               <span class="tag" :class="{ ok: run.classOpen }">{{ run.classOpen ? '课堂进行中' : '课堂已结束' }}</span>
               <span class="tag tag-accent">操作分 {{ run.operationScore ?? run.calculatedScore }} / 100</span>
               <span class="tag" :class="{ ok: run.archived }">{{ run.archived ? '操作记录已提交' : '操作记录未提交' }}</span>
             </div>
           </div>
-          <label v-if="runs.length > 1" class="wf-run-picker wf-teacher-bar__pick"><span>选择实验小组（{{ runs.length }} 条记录）</span><select class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验小组" @change="onPickRun"><optgroup v-for="group in teacherRunGroups" :key="group.name" :label="group.name"><option v-for="item in group.items" :key="item.id" :value="item.id">{{ item.groupName }} · 第 {{ item.attempt }} 次</option></optgroup></select></label>
+          <label v-if="tab === 'report'" class="wf-run-picker wf-teacher-bar__pick"><span>选择课次</span><select :value="run.taskId" :disabled="busy" aria-label="选择课次" @change="action(() => select(teacherTasks.find(t => t.taskId === $event.target.value).id))"><option v-for="t in teacherTasks" :key="t.taskId" :value="t.taskId">{{ t.timeText || stamp(t.createdAt) }} · {{ t.expName }}</option></select></label><label v-else-if="runs.length > 1" class="wf-run-picker wf-teacher-bar__pick"><span>选择实验小组（{{ runs.length }} 条记录）</span><select class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验小组" @change="onPickRun"><optgroup v-for="group in teacherRunGroups" :key="group.name" :label="group.name"><option v-for="item in group.items" :key="item.id" :value="item.id">{{ item.groupName }} · 第 {{ item.attempt }} 次</option></optgroup></select></label>
 
         </header>
-        <div v-else class="wf-student-head">
+        <div v-else-if="!teacher" class="wf-student-head">
           <div class="wf-student-head-main">
-            <select v-if="runs.length > 1" class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验记录" @change="onPickRun"><option v-for="r in runs" :key="r.id" :value="r.id">{{ r.expName }} · {{ r.groupName }} · 第{{ r.attempt }}次</option></select>
+            <select v-if="runs.length > 1" class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验记录" @change="onPickRun"><option v-for="r in runs" :key="r.id" :value="r.id">{{ r.taskId === taskId ? '当前课次' : '历史课次' }} · {{ r.timeText || stamp(r.createdAt) }} · {{ r.expName }} · {{ r.groupName }} · 第{{ r.attempt }}次</option></select>
             <h2 v-else>{{ run.expName }} · {{ run.groupName }}</h2>
-            <span class="wf-teacher-meta">第 {{ run.attempt }} 次 · {{ run.members.map(m => m.name).join('、') }}</span>
+            <span class="wf-teacher-meta">第 {{ run.attempt }} 次 · {{ run.members.map(m => `${m.name}${m.cls ? '（' + m.cls + '）' : ''}`).join('、') }}</span>
           </div>
         </div>
+        <section v-if="isLabPage && run.trialItems" class="wf-lesson-progress" aria-label="本课次实验进度">
+          <div class="wf-lesson-progress__main">
+            <div><strong>本课次实验进度</strong><span>{{ completedTrialCount }} / {{ run.trialItems.length }} 项完成</span></div>
+            <div class="wf-lesson-progress__track" role="progressbar" :aria-valuenow="completedTrialCount" aria-valuemin="0" :aria-valuemax="run.trialItems.length"><i :style="{ width: `${completedTrialCount / run.trialItems.length * 100}%` }"></i></div>
+          </div>
+          <div class="wf-lesson-progress__result">
+            <template v-if="run.archived"><span class="wf-lesson-score">操作成绩 {{ run.operationScore }} 分</span><button type="button" class="btn btn-ghost" @click="goLabStep('operation')">查看最终记录</button></template>
+            <button v-else-if="allTrialsComplete" type="button" class="btn btn-primary" @click="goLabStep('operation')">查看并提交最终记录</button>
+            <span v-else>还需完成 {{ missingTrials.length }} 项子实验</span>
+          </div>
+        </section>
         <nav v-if="run.trialItems && isLabPage" class="wf-trial-nav" aria-label="试验子项">
           <button v-for="item in run.trialItems" :key="item.id" type="button" :class="{ active: run.trialId === item.id }" :disabled="busy" @click="action(() => pickTrial(item.id))"><strong>{{ item.name }}</strong><small>{{ item.dataReady && item.photoReady ? '采集完成' : item.dataReady || item.photoReady ? '采集中' : '待采集' }}</small></button>
         </nav>
         <nav v-if="isLabPage" class="wf-stepper" aria-label="现场实验步骤">
-          <button v-for="(s, i) in labSteps" :key="s.id" type="button" class="wf-step" :class="{ active: tab === s.id, done: labStepDone(s.id), locked: i > 0 && !labStepDone(labSteps[i - 1].id) && tab !== s.id }" @click="goLabStep(s.id)"><span class="wf-step-num">{{ i + 1 }}</span><span class="wf-step-title">{{ s.title }}</span></button>
+          <button v-for="(s, i) in labSteps" :key="s.id" type="button" class="wf-step" :class="{ active: tab === s.id, done: labStepDone(s.id) }" @click="goLabStep(s.id)"><span class="wf-step-num">{{ i + 1 }}</span><span class="wf-step-title">{{ s.title }}</span></button>
         </nav>
         <section v-if="isLabPage && tab === 'data'" class="wf-panel wf-panel--student">
-          <div class="wf-group-reports-head"><h3>{{ run.trialName ? `${run.trialName} · 数据采集` : '数据采集' }}</h3><div class="wf-actions"><span v-if="run.data" class="tag">已采集</span><button v-if="!run.archived" type="button" class="btn btn-primary btn-sm" :disabled="busy" @click="action(syncWanceData)">{{ busy ? '正在采集…' : run.data ? '重新采集' : '开始采集' }}</button></div></div>
-
+          <div class="wf-group-reports-head wf-data-head"><h3>{{ run.trialName ? `${run.trialName} · 数据采集` : '数据采集' }}</h3><div class="wf-actions"><span v-if="run.data" class="tag">已采集</span><button v-if="!run.archived" type="button" class="btn btn-primary" :disabled="busy" @click="action(syncWanceData)">{{ busy ? '正在采集…' : '自动采集' }}</button></div></div>
           <p v-if="busy && !run.data" class="wf-empty wf-empty--inline">正在读取试验数据…</p>
           <div v-else-if="run.data" class="wf-data wf-data--linked">
             <div class="wf-metrics wf-metrics--compact"><div><small>最大力</small><strong>{{ run.data.maxF.toFixed(3) }} kN</strong></div><div><small>最大位移</small><strong>{{ run.data.maxD.toFixed(3) }} mm</strong></div><div><small>数据点</small><strong>{{ run.data.pointCount }}</strong></div></div>
             <CurveChart :points="points" />
-            <StressStrainChart v-if="isTensileTrial(run.trialId || run.expId)" :points="points" />
+            <StressStrainChart v-if="isStressStrainTrial(run.trialId || run.expId)" :points="points" :geometry="run.geometry" />
           </div>
-          <p v-else class="wf-empty wf-empty--inline">{{ run.archived ? '暂无试验数据' : '点击“开始采集”读取当前试验数据并生成曲线。' }}</p>
+          <p v-else class="wf-empty wf-empty--inline">{{ run.archived ? '暂无试验数据' : '尚未采集数据' }}</p>
           <div v-if="isLabPage" class="wf-step-nav"><button type="button" class="btn btn-primary" :disabled="busy || !labStepDone('data')" @click="nextLabStep">下一步：{{ nextLabStepTitle }}</button></div>
         </section>
         <section v-if="isLabPage && tab === 'capture'" class="wf-panel wf-panel--student">
           <h3>{{ run.trialName ? `${run.trialName} · 试件照片` : '断口照片' }}</h3>
-          <p v-if="run.trialItems" class="wf-hint">拉伸记录断口形貌；压缩记录试件变形或破坏形貌。</p>
-          <fieldset v-if="run.trialItems" :disabled="busy || run.archived"><div class="wf-form"><label>试件编号<input v-model="meta.specimenId"></label><label>设备编号<input v-model="meta.deviceId"></label><label>试验时间<input v-model="meta.experimentAt" type="datetime-local"></label></div><button type="button" class="btn btn-ghost" @click="action(saveMeta, '试件信息已保存')">保存本项试件信息</button></fieldset>
-          <p class="wf-hint">每次上传会<strong>替换</strong>当前断口照片并重新分析，不会叠加多张。</p>
-          <fieldset :disabled="busy || run.archived"><div class="wf-actions"><label>角度 <select v-model="angle"><option>正面</option><option>侧面</option><option>斜面</option><option>补充</option></select></label><button class="btn btn-primary" @click="action(startCamera)">打开摄像头</button><label class="btn btn-ghost">上传照片<input type="file" accept="image/jpeg,image/png" @change="onPhotoPick"></label></div></fieldset>
-          <div v-if="camera" class="camera"><video ref="video" autoplay playsinline muted></video><div class="wf-actions"><button class="btn btn-primary" :disabled="busy" @click="action(snap, '照片已保存')">拍摄并保存</button><button class="btn btn-ghost" @click="stopCamera">关闭摄像头</button></div></div>
-          <div class="photo-grid"><figure v-for="p in run.photos" :key="p.id"><img :src="images[p.id]" :alt="`${p.angle}断口照片`"><figcaption>{{ p.angle }} · {{ p.width }} × {{ p.height }}<small>{{ p.warning }}</small></figcaption><div class="wf-actions"><button @click="action(() => downloadFile(p.id, p.name))">下载原图</button><button v-if="!run.archived" :disabled="busy" @click="action(async () => { run = await call(`/runs/${run.id}/photos/${p.id}`, 'DELETE') }, '已移除，原文件仍保留')">不采用此图</button></div></figure></div>          <p v-if="!run.photos.length" class="wf-empty wf-empty--inline">请至少保存一张断口照片</p>
+          <div class="wf-actions"><label>角度 <select v-model="angle"><option>正面</option><option>侧面</option><option>斜面</option><option>补充</option></select></label><button type="button" class="btn btn-primary" @click="action(startCamera)">打开摄像头</button><label class="btn btn-ghost">上传照片<input type="file" hidden accept="image/jpeg,image/png" @change="onPhotoPick"></label></div>
+          <div class="wf-capture-layout"><div class="wf-capture-media"><div v-if="camera" class="camera"><video ref="video" autoplay playsinline muted></video><div class="wf-actions"><button type="button" class="btn btn-primary" :disabled="busy" @click="action(snap, '照片已保存')">拍摄并保存</button><button type="button" class="btn btn-ghost" @click="stopCamera">关闭摄像头</button></div></div>
+          <div v-if="!camera" class="photo-grid photo-grid--large"><figure v-for="p in run.photos" :key="p.id"><img :src="images[p.id]" :alt="`${p.angle}断口照片`"><figcaption>{{ p.angle }} · {{ p.width }} × {{ p.height }}<small>{{ p.warning }}</small></figcaption><div class="wf-actions"><button @click="action(() => downloadFile(p.id, p.name))">下载原图</button><button v-if="!run.archived" :disabled="busy" @click="action(async () => { run = await call(`/runs/${run.id}/photos/${p.id}`, 'DELETE') }, '已移除，原文件仍保留')">不采用此图</button></div></figure></div>          <p v-if="!run.photos.length" class="wf-empty wf-empty--inline">请至少保存一张断口照片</p>
           <p v-if="busy && run.photos.length && !run.fractureSummary" class="wf-empty wf-empty--inline">正在分析断口形貌…</p>
-          <div v-if="run.fractureSummary" class="wf-fracture-summary">
+          </div><aside class="wf-capture-result"><div v-if="run.fractureSummary" class="wf-fracture-summary">
             <h3>断口分析结论</h3>
             <p class="wf-fracture-summary__verdict">{{ run.fractureSummary.label }}</p>
-            <p v-if="run.fractureSummary.studentHint" class="wf-hint">{{ run.fractureSummary.studentHint }}</p>
+
             <ul v-if="run.fractureSummary.evidence?.length" class="wf-fracture-evidence"><li v-for="(line, i) in run.fractureSummary.evidence" :key="i">{{ line }}</li></ul>
             <button v-if="!run.archived" type="button" class="btn btn-ghost" :disabled="busy" @click="action(runFractureAnalysis, '已更新')">重新分析</button>
           </div>
+          <p v-else class="wf-empty">待采集照片</p></aside></div>
           <div v-if="isLabPage" class="wf-step-nav"><button type="button" class="btn btn-ghost" @click="prevLabStep">上一步</button><button type="button" class="btn btn-primary" :disabled="!labStepDone('capture')" @click="nextLabStep">下一步：{{ nextLabStepTitle }}</button></div>
         </section>
         <section v-if="teacher && tab === 'deduct'" class="wf-panel wf-panel--teacher-op wf-panel--deduct">
+          <section class="wf-classroom-overview" aria-label="本课次小组进度">
+            <header>
+              <h3>本课次小组</h3>
+              <div class="wf-classroom-counts"><span>实验中 {{ classroomCounts.collecting }}</span><span>操作记录已交 {{ classroomCounts.submitted }}</span><span>待确认扣分 {{ classroomCounts.grading }}</span><span>成绩已发布 {{ classroomCounts.published }}</span></div>
+            </header>
+            <div class="wf-classroom-groups">
+              <button v-for="item in classroomRuns" :key="item.id" type="button" class="wf-classroom-group" :class="{ active: item.id === run.id }" :disabled="busy" @click="action(() => select(item.id))">
+                <span class="wf-classroom-group__head"><strong>{{ item.groupName }}</strong><em :class="classroomState(item).kind">{{ classroomState(item).text }}</em></span>
+                <span>{{ item.members.map(m => m.name).join('、') }}</span>
+                <span class="wf-classroom-group__meta"><small>子实验 {{ item.completedTrials || 0 }}/{{ item.trialTotal || 1 }}</small><small v-if="item.archived">操作分 {{ item.operationScore }}</small></span>
+              </button>
+            </div>
+          </section>
+          <div v-if="run.retakeRequest?.status === 'pending'" class="wf-retake-alert"><div><strong>学生申请重做</strong><span>{{ run.retakeRequest.reason }}</span></div><button type="button" class="btn btn-ghost" @click="tab = 'retake'">处理重做</button></div>
           <div class="wf-classroom-bar">
-            <p class="wf-hint wf-classroom-bar__hint">扣分将同步到学生「操作记录」；结束课堂后不可新增扣分，可随时重新开放。</p>
             <div class="wf-actions wf-classroom-bar__actions">
-              <button type="button" class="btn btn-ghost" :disabled="busy" @click="action(() => control(run.classOpen ? 'close' : 'open'), '已更新')">{{ run.classOpen ? '结束课堂记录' : '重新开放课堂' }}</button>
-              <button v-if="run.archived" type="button" class="btn btn-ghost" :disabled="busy" @click="action(() => control('return'), '已退回，学生可修改后重新提交')">退回操作记录</button>
+              <button type="button" :class="['btn', run.classOpen ? 'btn-primary' : 'btn-ghost']" :disabled="busy || !run.archived" @click="action(() => control(run.classOpen ? 'close' : 'open'), run.classOpen ? '最终操作成绩已发布' : '已重新开放扣分调整')">{{ run.classOpen ? '确认扣分并发布成绩' : '重新调整扣分' }}</button>
+              <button v-if="run.archived && run.classOpen" type="button" class="btn btn-ghost" :disabled="busy" @click="action(() => control('return'), '已退回，学生可补采或修正后重新提交')">退回学生修改</button>
             </div>
           </div>
+          <ScoreConfirmation v-if="run.archived" :run="run" teacher :busy="busy" />
           <div class="wf-deduct-layout">
             <div class="wf-deduct-form">
-              <fieldset :disabled="busy"><p v-if="!run.classOpen" class="wf-message error">课堂记录已结束，不能新增扣分；请点击上方「重新开放课堂」后继续记录。</p><div v-if="!settings.catalogConfirmed" class="wf-message error wf-deduction-setup"><div><strong>请先确认扣分项和分值</strong><span>确认后，才能将现场观察记录为正式扣分。</span></div><button type="button" class="btn btn-ghost" @click="showSettings = true">去配置</button></div><div v-if="settings.catalogConfirmed" class="wf-deduction-heading"><div><h3>记录本次扣分</h3><p>勾选现场发生的项目，并补充具体情况。</p></div><button type="button" class="wf-text-button" @click="showSettings = true">编辑扣分项</button></div><div class="wf-checks"><label v-for="item in settings.catalog" :key="item.id"><input v-model="deduction.items" type="checkbox" :value="item.id" :disabled="!run.classOpen"> {{ item.label }}（{{ item.points }}分）</label></div><label>扣分依据<textarea v-model="deduction.reason" rows="3" placeholder="例如：第 2 组在设备运行中尝试打开保护罩，已现场提醒。"></textarea></label><label>撤销扣分时的说明<textarea v-model="controlReason" rows="2" placeholder="仅撤销明细时使用"></textarea></label><button class="btn btn-primary" :disabled="!run.classOpen || !settings.catalogConfirmed" @click="action(async () => { run = await call(`/runs/${run.id}/deductions`, 'POST', { ...deduction, revision: run.revision }); deduction.items = []; deduction.reason = ''; await listRuns() }, '保存本次扣分')">保存本次扣分</button></fieldset>
+              <fieldset :disabled="busy"><p v-if="run.archived && !run.classOpen" class="wf-message error">操作成绩已发布，如需修改请先重新开放评分。</p><div v-if="!settings.catalogConfirmed" class="wf-message error wf-deduction-setup"><div><strong>请先确认扣分项和分值</strong></div><button type="button" class="btn btn-ghost" @click="showSettings = true">去配置</button></div><div v-if="settings.catalogConfirmed" class="wf-deduction-heading"><div><h3>记录本次扣分</h3></div><button type="button" class="wf-text-button" @click="showSettings = true">编辑扣分项</button></div><div class="wf-checks"><label v-for="item in settings.catalog" :key="item.id"><input v-model="deduction.items" type="checkbox" :value="item.id" :disabled="!run.classOpen"> {{ item.label }}（{{ item.points }}分）</label></div><label>扣分依据<textarea v-model="deduction.reason" rows="3" placeholder="例如：第 2 组在设备运行中尝试打开保护罩，已现场提醒。"></textarea></label><label>撤销扣分时的说明<textarea v-model="controlReason" rows="2" placeholder="仅撤销明细时使用"></textarea></label><button class="btn btn-primary" :disabled="!run.classOpen || !settings.catalogConfirmed" @click="action(async () => { run = await call(`/runs/${run.id}/deductions`, 'POST', { ...deduction, revision: run.revision }); deduction.items = []; deduction.reason = ''; await listRuns() }, '保存本次扣分')">保存本次扣分</button></fieldset>
             </div>
             <section class="wf-deduction-records" aria-label="本次课堂扣分记录"><h3>已记录扣分</h3><p v-if="!run.deductions.length" class="wf-empty wf-empty--inline">暂无扣分记录</p><div v-else class="wf-table-wrap wf-table-wrap--tall"><table><thead><tr><th>项目</th><th>分值</th><th>依据</th><th></th></tr></thead><tbody><tr v-for="d in run.deductions" :key="d.id" :class="{ voided: d.voided }"><td>{{ d.label }}<small>{{ stamp(d.at) }}</small></td><td>{{ d.voided ? '已撤销' : `-${d.points}` }}</td><td>{{ d.reason || '—' }}</td><td><button v-if="!d.voided" type="button" class="btn btn-ghost" :disabled="busy" @click="action(async () => { run = await call(`/runs/${run.id}/deductions/${d.id}/void`, 'POST', { revision: run.revision, reason: controlReason }) }, '已撤销')">撤销</button></td></tr></tbody></table></div></section>
           </div>
         </section>
         <section v-if="teacher && tab === 'record'" class="wf-panel wf-panel--teacher-op wf-panel--op-doc">
-          <p v-if="!run.archived" class="wf-empty wf-empty--inline">该组尚未提交实验操作记录。学生提交后，此处显示与课堂扣分同步的完整记录。</p>
+          <p v-if="!run.archived" class="wf-empty wf-empty--inline">该组尚未提交操作记录。</p>
           <OperationRecordDoc v-else :run="run" :points="points" :images="images" :deductions="activeDeductions" :read-only="true" />
         </section>
         <section v-if="isLabPage && tab === 'operation'" class="wf-panel wf-panel--student wf-panel--op-doc-wrap">
           <OperationRecordDoc :run="run" :points="points" :images="images" :deductions="activeDeductions" :read-only="!!run.archived" />
-          <div v-if="!run.archived" class="wf-op-doc__actions">
-            <p v-if="run.classOpen" class="wf-hint">教师仍在记录课堂扣分，本页约每 10 秒自动刷新扣分；确认无误后再提交。</p>
-            <label class="wf-op-doc__confirm"><input v-model="operationConfirmed" type="checkbox"> 我已核对试验数据、断口图像与课堂扣分，确认提交本组实验操作记录。</label>
-            <div class="wf-actions">
-              <button type="button" class="btn btn-primary" :disabled="busy || !operationConfirmed || (run.trialItems ? !run.trialItems.every(t => t.dataReady && t.photoReady) : !labStepDone('capture') || !labStepDone('data') || !run.fractureSummary)" @click="action(submitOperationRecord, '实验操作记录已提交')">提交操作记录</button>
-            </div>
-          </div>
-          <p v-else class="wf-message success">已于 {{ stamp(run.archivedAt) }} 提交，记录已锁定。教师可在「实验记录」中查看。</p>
+          <ScoreConfirmation :run="run" :busy="busy" @confirm="values => action(() => confirmScore(values), '成绩已确认')" @retake="reason => action(() => requestRetake(reason), '重做申请已提交')" />
+          <div v-if="!run.archived" class="wf-op-doc__actions"><div v-if="missingTrials.length" class="wf-actions"><button v-for="t in missingTrials" :key="t.id" class="btn btn-ghost" @click="action(() => pickTrial(t.id))">{{ t.name }}：{{ !t.dataReady ? '缺少数据' : '缺少照片' }}</button></div><button class="btn btn-primary" :disabled="busy || !allTrialsComplete" @click="action(submitOperationRecord)">提交本课次操作记录</button></div>
+          <p v-else>操作记录已提交 · {{ stamp(run.archivedAt) }}</p>
           <div class="wf-step-nav"><button type="button" class="btn btn-ghost" @click="prevLabStep">上一步</button><button v-if="run.archived" type="button" class="btn btn-primary" @click="goStudentNav('s-report')">前往实验报告</button></div>
-          <details v-if="!run.archived" class="wf-deductions-fold"><summary>申请重做</summary>
-            <fieldset :disabled="busy"><label>重做原因<textarea v-model="controlReason" rows="2"></textarea></label><button type="button" class="btn btn-ghost" @click="action(async () => { run = await call(`/runs/${run.id}/retake-request`, 'POST', { reason: controlReason, revision: run.revision }) }, '申请已提交')">提交申请</button></fieldset>
-          </details>
         </section>
-        <section v-if="teacher && tab === 'report'" class="wf-panel wf-panel--teacher-op">
-
-          <header class="wf-group-reports-head"><div><h3>{{ reportWorkspaceOpen ? '实验报告批改' : '学生报告列表' }}</h3><p>{{ run.groupName }} · 已提交 {{ submittedStudents }} / {{ groupReportStudents.length }} 人</p></div><div class="wf-actions"><button v-if="reportWorkspaceOpen" type="button" class="btn btn-ghost" :disabled="busy" @click="reportWorkspaceOpen=false">返回学生列表</button><button type="button" class="btn btn-ghost" :disabled="busy" @click="action(() => select(run.id))">刷新报告</button></div></header>
-          <div v-if="!reportWorkspaceOpen" class="report-list-tools"><label>搜索学生<input v-model="reportQuery" placeholder="输入姓名或学号" type="search"></label><label>报告状态<select v-model="reportFilter"><option value="all">全部状态</option><option>待批改</option><option>已批改</option><option>已退回</option><option>未提交</option></select></label><span>共 {{ filteredReportStudents.length }} 位学生</span></div>
-          <div v-if="!reportWorkspaceOpen" class="wf-table-wrap report-student-table"><table class="wf-group-reports-table"><thead><tr><th>学生姓名</th><th>学号</th><th>报告状态</th><th>最新版本</th><th>提交时间</th><th>最终成绩</th><th>相似度</th><th>操作</th></tr></thead><tbody><tr v-for="student in filteredReportStudents" :key="student.sid"><td><strong>{{ student.name }}</strong></td><td>{{ student.sid }}</td><td><span class="report-status" :class="{'is-done':student.latest?.finalScore!=null}">{{ reportStatus(student) }}</span></td><td>{{ student.latest ? `第 ${student.latest.version} 版` : '—' }}</td><td>{{ stamp(student.latest?.submittedAt) }}</td><td>{{ student.latest?.finalScore != null ? `${student.latest.finalScore} 分` : '—' }}</td><td>{{ student.latest?.similarity ? `${student.latest.similarity.maxPercent}%` : '—' }}</td><td><div class="report-row-actions"><button type="button" class="wf-text-button" :disabled="busy || !student.latest" @click="enterReport(student, 'review')">批改</button><button type="button" class="wf-text-button" :disabled="busy || !student.latest" @click="enterReport(student, 'similarity')">查重</button></div></td></tr><tr v-if="!filteredReportStudents.length"><td colspan="8" class="wf-empty">暂无匹配的学生</td></tr></tbody></table></div>
-          <div v-if="reportWorkspaceOpen && selectedReport" class="report-grading-layout">
-            <aside class="report-student-rail"><h4>学生列表</h4><input v-model="reportQuery" type="search" placeholder="搜索姓名 / 学号" aria-label="搜索批改学生"><select v-model="reportFilter" aria-label="筛选批改状态"><option value="all">全部状态</option><option>待批改</option><option>已批改</option><option>已退回</option><option>未提交</option></select><div class="report-student-scroll"><button v-for="student in filteredReportStudents" :key="student.sid" type="button" class="report-student-item" :class="{active:student.sid===selectedStudent?.sid}" :disabled="busy || !student.latest" @click="enterReport(student, reportMode)"><span><strong>{{ student.name }}</strong><small>{{ reportStatus(student) }}</small></span><small>{{ student.sid }}</small><small>{{ student.latest ? stamp(student.latest.submittedAt) : '尚未提交报告' }}</small><span>成绩 {{ student.latest?.finalScore ?? '—' }}</span></button><p v-if="!filteredReportStudents.length" class="wf-hint">暂无匹配学生</p></div></aside>
-            <article class="report-document-pane"><header class="report-document-head"><div><h3>{{ selectedStudent?.name }} · 实验报告</h3><p>{{ selectedReport.fileName }}</p></div><div class="wf-actions"><label>版本 <select v-model="selectedReportId" :disabled="busy" aria-label="选择学生报告版本"><option v-for="report in selectedStudent?.reports || []" :key="report.id" :value="report.id">第 {{ report.version }} 版</option></select></label><button class="btn btn-ghost" :disabled="busy" @click="action(() => downloadFile(selectedReport.fileId, selectedReport.fileName))">下载原文件</button></div></header>
-              <p v-if="selectedReport.returned" class="wf-message error">已退回：{{ selectedReport.returnReason }}</p><p v-if="selectedReport.templateCheck?.checked && selectedReport.templateCheck.missingSections.length" class="wf-message error">缺章节：{{ selectedReport.templateCheck.missingSections.join('、') }}</p><ReportPreview :file="selectedReport" />
-            </article>
-            <aside class="report-assessment-pane"><ReportReview :report="selectedReport" :busy="busy" :mode="reportMode" @update:mode="reportMode=$event"
-                @ai="action(() => analyzeReport(`ai/${selectedReport.id}`))"
-                @similarity="action(() => analyzeReport('similarity'))"
-                @grade="values => action(() => review(selectedReport, 'grade', values), '已保存最终成绩')"
-                @return="values => action(() => review(selectedReport, 'return', values), '报告已退回')" /></aside>
-          </div>
-
-        </section>
+        <ReportDesk v-if="teacher && tab === 'report'" :task-id="run.taskId" />
+        <ScoreConfirmation v-if="isReportPage && run.archived && !run.myScoreConfirmed" :run="run" :busy="busy" @confirm="values => action(() => confirmScore(values), '成绩已确认')" @retake="reason => action(() => requestRetake(reason), '重做申请已提交')" />
         <StudentReport v-if="isReportPage" :run="run" :draft="myDraft" :reports="myReports.filter(r => r.sid === sid)" :locked="reportLocked" :busy="busy" :template="settings.template"
           @upload="file => action(() => uploadReport(file))"
           @download="file => action(() => downloadFile(file.fileId, file.fileName))"
@@ -525,10 +612,12 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
 
 <style>
 .wf-group-reports-head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:0 0 18px}.wf-group-reports-head h3{margin:0}.wf-group-reports-head p{margin:6px 0 0;color:#647980;font-size:13px}.wf-group-reports-head label{font-size:13px;color:#52666f}.wf-group-reports-head select{max-width:100%;margin-left:8px;padding:8px;border:1px solid #dce6e9;border-radius:6px;background:#fff}.wf-group-reports-table{width:100%}.wf-group-reports-table tr.is-selected{background:#edf7f8}.wf-group-reports-table th{white-space:nowrap}.wf-group-reports-table td{font-size:13px}.report-card--solo>.report-preview{margin:16px 0 24px}@media(max-width:700px){.wf-group-reports-head{align-items:flex-start;flex-direction:column}}
+.wf-data-head{flex-direction:row!important;align-items:center!important}.wf-data-head>.wf-actions{margin-left:auto;justify-content:flex-end}
 </style>
 
 <style>
 .wf-trial-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:18px;background:#f5f8f9}.wf-trial-nav button{display:grid;gap:8px;padding:16px;text-align:left;background:white;border:1px solid #dce6e9;border-radius:8px;color:#405766;cursor:pointer}.wf-trial-nav button.active{border-color:#087c88;background:#eaf7f7;color:#087c88}.wf-trial-nav small{font-size:12px}@media(max-width:650px){.wf-trial-nav{grid-template-columns:1fr 1fr}}
+.wf-lesson-progress{display:flex;align-items:center;justify-content:space-between;gap:28px;padding:18px 22px;background:#fff;border:1px solid #e1e9ed;border-bottom:0}.wf-lesson-progress__main{display:grid;gap:10px;min-width:240px;flex:1}.wf-lesson-progress__main>div:first-child{display:flex;align-items:baseline;justify-content:space-between;gap:16px}.wf-lesson-progress__main strong{font-size:15px}.wf-lesson-progress__main span,.wf-lesson-progress__result>span{font-size:13px;color:#647980}.wf-lesson-progress__track{height:7px;border-radius:99px;background:#e5edef;overflow:hidden}.wf-lesson-progress__track i{display:block;height:100%;border-radius:inherit;background:#087c88;transition:width .2s}.wf-lesson-progress__result{display:flex;align-items:center;justify-content:flex-end;gap:12px;min-width:220px}.wf-lesson-progress__result .btn{margin:0;white-space:nowrap}.wf-lesson-score{padding:6px 10px;border-radius:5px;background:#e9f6ee;color:#24623c!important;font-weight:600}@media(max-width:700px){.wf-lesson-progress{align-items:stretch;flex-direction:column;gap:14px;padding:16px}.wf-lesson-progress__result{justify-content:flex-start;min-width:0}.wf-lesson-progress__result .btn{width:100%}}
 </style>
 
 <style>
@@ -564,4 +653,14 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
 @media(min-width:1700px){.workflow-layout--teacher .report-grading-layout{grid-template-columns:190px minmax(0,1fr) 300px}.workflow-layout--teacher .report-student-rail{grid-row:auto}.workflow-layout--teacher .report-assessment-pane{grid-column:auto}}
 @media(min-width:901px) and (max-width:1200px){.workflow-layout--teacher .wf-deduct-layout{grid-template-columns:1fr}}
 @media(max-width:760px){.workflow-layout--teacher{grid-template-columns:1fr;gap:16px}.wf-teacher-sidebar{position:static;max-height:none}.wf-teacher-sidebar__head{padding:16px}.wf-teacher-sidebar__head>p:last-child{display:none}.wf-teacher-sidebar nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.wf-menu-item{padding:10px;font-size:12px}.wf-menu-parent{font-size:12px;padding:10px 6px}.wf-menu-item small{display:none}.wf-menu-group{margin:0}.workflow-layout--teacher .report-grading-layout{grid-template-columns:1fr}.workflow-layout--teacher .report-student-rail{grid-row:auto}.workflow-layout--teacher .report-assessment-pane{grid-column:auto}}
+</style>
+
+<style>
+.wf-source-picker{display:flex;align-items:end;flex-wrap:wrap;gap:12px;margin:18px 0}.wf-source-picker label{display:grid;gap:6px}.wf-source-picker select{max-width:400px}.wf-import-mapping pre{max-height:180px;overflow:auto;background:#f5f7f9}.photo-grid--large{grid-template-columns:1fr!important}.photo-grid--large figure{max-width:none!important}.photo-grid--large img{height:clamp(320px,48vh,600px)!important;object-fit:contain!important;background:#18252c;width:100%}.camera video{width:100%;max-height:60vh;object-fit:contain;background:#18252c}.wf-error-dialog{position:fixed;inset:0;background:#14263066;z-index:1000;display:grid;place-items:center}.wf-error-dialog>div{background:white;padding:28px;width:min(420px,90vw);border-radius:8px}.wf-error-dialog p{overflow-wrap:anywhere}
+</style>
+
+<style>.wf-capture-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;margin-top:20px}.wf-capture-media{min-width:0}.wf-capture-result .wf-fracture-summary{margin:0;height:100%;box-sizing:border-box}.wf-capture-layout .photo-grid{margin:0}.wf-capture-layout .photo-grid img{height:clamp(350px,50vh,560px)!important}.wf-capture-layout .camera video{height:50vh}.wf-capture-result .wf-empty{margin:0;background:#f7f9fa;padding:32px}.wf-source-picker input[type=file]{display:none}@media(max-width:900px){.wf-capture-layout{grid-template-columns:1fr}.wf-capture-layout .photo-grid img{height:360px!important}}</style>
+
+<style>
+.wf-classroom-overview{margin:-4px 0 24px;padding-bottom:22px;border-bottom:1px solid #e5edef}.wf-classroom-overview>header{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:14px}.wf-classroom-overview h3{margin:0}.wf-classroom-counts{display:flex;flex-wrap:wrap;gap:8px}.wf-classroom-counts span{padding:5px 9px;border-radius:5px;background:#f1f5f6;color:#52666f;font-size:12px}.wf-classroom-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.wf-classroom-group{display:grid;gap:9px;min-width:0;padding:14px;border:1px solid #dce6e9;border-radius:8px;background:#fff;color:#405766;text-align:left;font:inherit;cursor:pointer}.wf-classroom-group:hover{border-color:#90cdd2}.wf-classroom-group.active{border-color:#087c88;background:#edf8f8;box-shadow:0 0 0 1px #087c88}.wf-classroom-group__head,.wf-classroom-group__meta{display:flex;align-items:center;justify-content:space-between;gap:10px}.wf-classroom-group__head strong{color:#223945}.wf-classroom-group__head em{padding:4px 7px;border-radius:4px;background:#eef2f3;color:#647980;font-size:12px;font-style:normal;white-space:nowrap}.wf-classroom-group__head em.attention{background:#e8f4f5;color:#087c88}.wf-classroom-group__head em.warn{background:#fff4df;color:#8a5b12}.wf-classroom-group__head em.ok{background:#e9f6ee;color:#24623c}.wf-classroom-group>span:nth-child(2){overflow:hidden;color:#647980;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.wf-classroom-group__meta{justify-content:flex-start;color:#647980}.wf-classroom-group__meta small+small{padding-left:10px;border-left:1px solid #dce6e9}.wf-retake-alert{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;padding:14px 16px;border:1px solid #efd8ac;border-radius:8px;background:#fff8ea}.wf-retake-alert>div{display:grid;gap:5px}.wf-retake-alert span{color:#705527;font-size:13px}@media(max-width:700px){.wf-classroom-overview>header,.wf-retake-alert{align-items:flex-start;flex-direction:column}.wf-classroom-groups{grid-template-columns:1fr}.wf-classroom-counts{width:100%}}
 </style>
