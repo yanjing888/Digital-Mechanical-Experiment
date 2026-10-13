@@ -18,8 +18,6 @@ import java.util.*;
 public class RunService {
     final JdbcTemplate db;
     final WanceDataService wance;
-    @org.springframework.beans.factory.annotation.Value("${lab.wance.fixed-source:true}")
-    boolean fixedWanceSource = true;
     public RunService(JdbcTemplate db, WanceDataService wance) { this.db=db; this.wance=wance; }
     public JdbcTemplate jdbc() { return db; }
     public List<String> validateTrials(Object value) {
@@ -399,14 +397,13 @@ public class RunService {
         return Map.of("rows",rows.stream().limit(12).toList(),"rowCount",rows.size());
     }
     @Transactional
-    public Map<String,Object> importWanceData(String id,Actor a,String fileName) {
+    public Map<String,Object> importWanceData(String id,Actor a) {
         Map<String,Object> r=load(id,a,true); mutable(r);
         try {
-            Path mdb=fixedWanceSource?wance.resolve(wance.defaultFileName()):
-                    fileName==null||fileName.isBlank()?WanceMdbReader.latestMdb(wance.directory()):wance.resolve(fileName);
+            Path mdb=WanceMdbReader.latestMdb(wance.directory());
             byte[] content=Files.readAllBytes(mdb);
-            if(!fixedWanceSource)rejectForeignData(id,content);
-            if (!fixedWanceSource && TrialRecords.combined(r)) {
+            rejectForeignData(id,content);
+            if (TrialRecords.combined(r)) {
                 for (Map<String,Object> trial : TrialRecords.items(r)) {
                     if (Objects.equals(trial.get("id"),r.get("trialId"))) continue;
                     String previousFile=str(map(trial.get("data")).get("fileId"));
@@ -415,8 +412,10 @@ public class RunService {
                 }
             }
             Map<String,Object> parsed=new LinkedHashMap<>(WanceMdbReader.parse(mdb));
-            parsed.put("sourceMode",fixedWanceSource?"fixed_file":"device_file");
-            if(fixedWanceSource)r.put("geometry",Map.of("area",Math.PI*25,"gaugeLength",100,"strainSource","crosshead","source","fixed_file_parameters"));
+            parsed.put("sourceMode","device_file");
+            Map<String,Object> geometry=map(parsed.get("geometry"));
+            if(geometry.isEmpty())r.remove("geometry");
+            else r.put("geometry",geometry);
             String fid=file(id,a,"data",new MockBytesMultipart(mdb.getFileName().toString(),content),content,"application/x-msaccess","","ready");
             parsed.put("fileId",fid);parsed.put("fileName",mdb.getFileName().toString());parsed.put("importedAt",now());
             r.put("data",parsed);r.remove("analysis");r.remove("fractureSummary");

@@ -16,6 +16,7 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static cn.ncut.lab.service.RunService.*;
@@ -27,7 +28,25 @@ class WorkflowTest {
         @Bean DataSource dataSource(){return new DriverManagerDataSource("jdbc:h2:mem:workflow;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1","sa","");}
         @Bean JdbcTemplate db(DataSource d){return new JdbcTemplate(d);}
         @Bean DataSourceTransactionManager transactionManager(DataSource d){return new DataSourceTransactionManager(d);}
-        @Bean WanceDataService wance(){return new WanceDataService("../assets/device-data","2024-04-25-09-24-49.mdb");}
+        @Bean WanceDataService wance() throws IOException {
+            var dir=Files.createTempDirectory("workflow-wance-");
+            var file=dir.resolve("2024-04-25-09-24-49.mdb");
+            dir.toFile().deleteOnExit();file.toFile().deleteOnExit();
+            try(var database=com.healthmarketscience.jackcess.DatabaseBuilder.create(
+                    com.healthmarketscience.jackcess.Database.FileFormat.V2000,file.toFile())) {
+                var table=new com.healthmarketscience.jackcess.TableBuilder("OriginalData")
+                        .addColumn(new com.healthmarketscience.jackcess.ColumnBuilder("ID",com.healthmarketscience.jackcess.DataType.LONG))
+                        .addColumn(new com.healthmarketscience.jackcess.ColumnBuilder("TestNo",com.healthmarketscience.jackcess.DataType.LONG))
+                        .addColumn(new com.healthmarketscience.jackcess.ColumnBuilder("PlayTime",com.healthmarketscience.jackcess.DataType.DOUBLE))
+                        .addColumn(new com.healthmarketscience.jackcess.ColumnBuilder("LoadValue",com.healthmarketscience.jackcess.DataType.DOUBLE))
+                        .addColumn(new com.healthmarketscience.jackcess.ColumnBuilder("PositionValue",com.healthmarketscience.jackcess.DataType.DOUBLE))
+                        .toTable(database);
+                table.addRow(1,1,0.0,0.0,0.0);
+                table.addRow(2,1,1.0,2000.0,0.5);
+                table.addRow(3,1,2.0,3000.0,1.0);
+            }
+            return new WanceDataService(dir.toString(),"");
+        }
         @Bean RunService runs(JdbcTemplate db,WanceDataService wance){return new RunService(db,wance);}
         @Bean ClassroomService classroom(RunService r){return new ClassroomService(r);}
         @Bean ReportDeskService desk(RunService r,TeachingService t){return new ReportDeskService(r,t);}
@@ -124,24 +143,19 @@ class WorkflowTest {
         assertEquals(true,runs.detail(runId,student).get("archived"));
         assertThrows(ApiException.class,()->runs.validateTrials(List.of()));
     }
-    @Test void automaticAcquisitionUsesFixedFileAndOriginalCurveParameters() {
+    @Test void automaticAcquisitionReadsLatestFileAndRejectsReuse() {
         var original=runs.load(runId,student,false);original.put("expId",ExperimentCatalog.COMBINED);
         db.update("UPDATE experiment_runs SET payload=? WHERE id=?",JsonUtil.write(original),runId);
-        var first=runs.importWanceData(runId,student,null);
+        var first=runs.importWanceData(runId,student);
         assertEquals("2024-04-25-09-24-49.mdb",map(first.get("data")).get("fileName"));
-        assertEquals("fixed_file",map(first.get("data")).get("sourceMode"));
-        assertEquals(Math.PI*25,((Number)map(first.get("geometry")).get("area")).doubleValue());
-        assertEquals(100,((Number)map(first.get("geometry")).get("gaugeLength")).intValue());
+        assertEquals("device_file",map(first.get("data")).get("sourceMode"));
         try {
             var request=new org.springframework.mock.web.MockHttpServletRequest();request.setParameter("trial","CAST_TENS");
             org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(new org.springframework.web.context.request.ServletRequestAttributes(request));
-            runs.importWanceData(runId,student,null);
-            assertEquals(2,list(runs.detail(runId,student).get("trialItems")).stream().filter(t->Boolean.TRUE.equals(t.get("dataReady"))).count());
+            assertEquals(409,assertThrows(ApiException.class,()->runs.importWanceData(runId,student)).getStatus());
         } finally {org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();}
         String other=str(runs.runs(outsider).get(0).get("id"));
-        RunService live=new RunService(db,new WanceDataService("../assets/device-data","2024-04-25-09-24-49.mdb"));live.fixedWanceSource=false;
-        assertEquals(409,assertThrows(ApiException.class,()->live.importWanceData(other,outsider,null)).getStatus());
-        assertNotNull(runs.importWanceData(other,outsider,null).get("data"));
+        assertEquals(409,assertThrows(ApiException.class,()->runs.importWanceData(other,outsider)).getStatus());
     }
     @Test void dataFileCannotBeReusedByAnotherGroup() {
         runs.importData(runId,student,csv(),2,1,0,"N");

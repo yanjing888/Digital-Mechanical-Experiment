@@ -1,6 +1,3 @@
-// Parameters used by the original fixed-file display: d = 10 mm, L0 = 100 mm.
-export const FIXED_SAMPLE_GEOMETRY = Object.freeze({ area: Math.PI * 25, gaugeLength: 100 })
-
 export function isTensileTrial(id) {
   return ['TENS', 'STEEL_TENS', 'CAST_TENS'].includes(id)
 }

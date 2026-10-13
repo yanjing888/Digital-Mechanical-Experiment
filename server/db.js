@@ -208,20 +208,8 @@ async function ensureUniqueIndex(table, indexName, column) {
 }
 
 async function initDb() {
-  // ensure database exists using connection without database
-  const bootstrap = await mysql.createConnection({
-    host: config.host,
-    port: config.port,
-    user: config.user,
-    password: config.password,
-    multipleStatements: true
-  });
-  await bootstrap.query(
-    `CREATE DATABASE IF NOT EXISTS \`${config.database}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-  );
-  await bootstrap.end();
   await getPool();
-  await migrate();
+  await query('SELECT 1');
   return config;
 }
 

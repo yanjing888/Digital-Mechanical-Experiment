@@ -62,7 +62,7 @@ public class WorkflowController {
     @DeleteMapping("/runs/{id}/photos/{fid}") public Object removePhoto(HttpServletRequest q,@PathVariable String id,@PathVariable String fid) {return runs.removePhoto(id,fid,actor(q));}
     @PostMapping("/preview") public Object preview(HttpServletRequest q,@RequestParam MultipartFile file) {actor(q);return runs.preview(file);}
     @GetMapping("/wance/status") public Object wanceStatus(HttpServletRequest q) throws Exception { actor(q); return runs.wanceStatus(); }
-    @PostMapping("/runs/{id}/data/wance") public Object wanceData(HttpServletRequest q,@PathVariable String id,@RequestBody(required=false) Map<String,Object> b) {return runs.importWanceData(id,actor(q),b==null?null:str(b.get("fileName")));}
+    @PostMapping("/runs/{id}/data/wance") public Object wanceData(HttpServletRequest q,@PathVariable String id) {return runs.importWanceData(id,actor(q));}
     @PostMapping("/runs/{id}/data") public Object data(HttpServletRequest q,@PathVariable String id,@RequestParam MultipartFile file,@RequestParam int start,@RequestParam int force,@RequestParam int displacement,@RequestParam String unit) {return runs.importData(id,actor(q),file,start,force,displacement,unit);}
     static String str(Object v) { return v==null?"":v.toString().trim(); }
     @PostMapping("/runs/{id}/archive") public Object archive(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {

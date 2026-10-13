@@ -617,11 +617,9 @@ public class StoreService {
     @Transactional
     public Map<String, Object> createTask(String expId, List<String> groupIds, String place, String timeText, String note, String tip, String teacher) {
         if (!ExperimentCatalog.IDS.contains(expId)) throw new ApiException(400,"请下发“拉伸压缩实验”；钢、铸铁的拉伸与压缩在任务内分别采集。");
-        List<Map<String, Object>> exps = jdbc.queryForList("SELECT * FROM experiments WHERE id = ?", expId);
-        if (exps.isEmpty()) throw new ApiException(400, "实验不存在");
         if (groupIds == null || groupIds.isEmpty()) throw new ApiException(400, "请选择小组");
         if (new HashSet<>(groupIds).size() != groupIds.size()) throw new ApiException(400, "小组不能重复选择");
-        Map<String, Object> exp = exps.get(0);
+        String expName = ExperimentCatalog.NAMES.get(expId);
         String tipText = str(tip);
 
         for (String gid : groupIds) {
@@ -637,7 +635,7 @@ public class StoreService {
         String id = "task_" + nano(10);
         String createdAt = nowIso();
         jdbc.update("INSERT INTO tasks (id, exp_id, exp_name, place, time_text, note, tip, teacher, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                id, exp.get("id"), exp.get("name"), place == null ? "" : place, timeText == null ? "" : timeText,
+                id, expId, expName, place == null ? "" : place, timeText == null ? "" : timeText,
                 note == null ? "" : note, tipText, teacher == null ? "" : teacher, createdAt);
         for (String gid : groupIds) {
             jdbc.update("INSERT INTO task_groups (task_id, group_id) VALUES (?, ?)", id, gid);
@@ -649,7 +647,7 @@ public class StoreService {
                     + "door_closed=0, exp_flow='wait_door', acq_paused=0, acq_json='{\"points\":[],\"t0\":null}', max_f=0, max_d=0, "
                     + "fracture_img=NULL, fracture_type=NULL, fracture_conf=0, fracture_analysis_json=NULL, fracture_self_json=NULL, group_confirmed=0, "
                     + "personal_json='{}', personal_submitted=0, personal_submitted_at=NULL, personal_score=NULL, personal_comment='' WHERE group_id=?",
-                    id, exp.get("id"), exp.get("name"), note == null ? "" : note, tipText, place == null ? "" : place, timeText == null ? "" : timeText, gid);
+                    id, expId, expName, note == null ? "" : note, tipText, place == null ? "" : place, timeText == null ? "" : timeText, gid);
         }
         for (Map<String, Object> t : listTasks()) if (id.equals(t.get("id"))) return t;
         return null;

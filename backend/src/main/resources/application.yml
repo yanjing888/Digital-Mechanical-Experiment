@@ -33,12 +33,11 @@ dify:
 app:
   student-default-password: ${STUDENT_DEFAULT_PASSWORD:123456}
 
-# 万测 TestPilot 试验数据目录（.mdb），试验机保存路径需与此一致或由教师统一部署
+# 万测 TestPilot：每次采集都会重新读取外部配置文件，目录可运行时修改。
 lab:
   wance:
-    data-dir: ${WANCE_DATA_DIR:../assets/device-data}
-    default-file: ${WANCE_DEFAULT_FILE:2024-04-25-09-24-49.mdb}
-    fixed-source: ${WANCE_FIXED_SOURCE:true}
+    config-file: ${WANCE_CONFIG_FILE:config/wance.properties}
+    data-dir: ${WANCE_DATA_DIR:../data}
 
 report:
   ocr-command: ${REPORT_OCR_COMMAND:}

@@ -3,8 +3,7 @@
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
-const { initDb, query } = require('./db');
-const { seed } = require('./seed');
+const { initDb } = require('./db');
 const api = require('./routes/api');
 
 const PORT = Number(process.env.PORT || 3780);
@@ -12,11 +11,6 @@ const PUBLIC = path.join(__dirname, '..', 'public');
 
 async function boot() {
   const cfg = await initDb();
-  const teachers = await query('SELECT COUNT(*) AS n FROM teachers');
-  if (!teachers[0] || Number(teachers[0].n) === 0) {
-    console.log('Empty database, seeding demo data...');
-    await seed();
-  }
 
   const app = express();
   app.use(cors());

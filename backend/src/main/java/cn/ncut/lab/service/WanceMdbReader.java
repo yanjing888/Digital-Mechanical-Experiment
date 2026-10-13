@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
 
 /** 万测 TestPilot 试验软件生成的 Access .mdb（表 OriginalData：LoadValue、PositionValue）。 */
 public final class WanceMdbReader {
-    private static final Pattern FILE_TIME = Pattern.compile("(\\d{4})-(\\d{2})-(\\d{2})-(\\d{2})-(\\d{2})-(\\d{2})");
+    private static final Pattern FILE_TIME = Pattern.compile("^(\\d{4})-(\\d{2})-(\\d{2})-(\\d{2})-(\\d{2})-(\\d{2})\\.mdb$", Pattern.CASE_INSENSITIVE);
     private static final DateTimeFormatter LOCAL_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss");
 
     private WanceMdbReader() {}
@@ -22,14 +22,16 @@ public final class WanceMdbReader {
         if (dataDir == null || !Files.isDirectory(dataDir)) return List.of();
         List<Map<String, Object>> out = new ArrayList<>();
         try (var stream = Files.list(dataDir)) {
-            for (Path p : stream.filter(f -> f.toString().toLowerCase(Locale.ROOT).endsWith(".mdb")).toList()) {
+            for (Path p : stream.filter(Files::isRegularFile)
+                    .filter(f -> parseFileNameTime(f.getFileName().toString()).isPresent()).toList()) {
                 out.add(Map.of(
                         "fileName", p.getFileName().toString(),
+                        "experimentAt", parseFileNameTime(p.getFileName().toString()).orElseThrow().toString(),
                         "modifiedAt", Files.getLastModifiedTime(p).toInstant().toString(),
                         "sizeBytes", Files.size(p)));
             }
         }
-        out.sort((a, b) -> str(b.get("modifiedAt")).compareTo(str(a.get("modifiedAt"))));
+        out.sort((a, b) -> str(b.get("experimentAt")).compareTo(str(a.get("experimentAt"))));
         return out;
     }
 
@@ -37,13 +39,14 @@ public final class WanceMdbReader {
         return listSources(dataDir).stream()
                 .map(m -> dataDir.resolve(str(m.get("fileName"))))
                 .findFirst()
-                .orElseThrow(() -> new ApiException(404, "数据目录中暂无 .mdb 试验文件，请先在万测软件完成试验"));
+                .orElseThrow(() -> new ApiException(404, "数据目录中暂无按时间命名的 .mdb 文件，请先在万测软件完成试验"));
     }
 
     public static Map<String, Object> parse(Path mdb) throws IOException {
         List<Map<String, Object>> points = new ArrayList<>();
         double maxF = -Double.MAX_VALUE, maxD = -Double.MAX_VALUE;
         Integer testNo = null;
+        Map<String, Object> geometry = Map.of();
         try (Database db = DatabaseBuilder.open(mdb.toFile())) {
             if (!db.getTableNames().contains("OriginalData")) throw new ApiException(400, "不是可识别的万测数据文件（缺少 OriginalData 表）");
             Table table = db.getTable("OriginalData");
@@ -69,6 +72,7 @@ public final class WanceMdbReader {
                 maxF = Math.max(maxF, fKn);
                 maxD = Math.max(maxD, dMm);
             }
+            geometry = readGeometry(db, testNo);
         }
         if (points.size() < 2) throw new ApiException(400, "万测数据文件中没有有效曲线点");
         if (points.size() > 12000) points = downsample(points, 8000);
@@ -80,6 +84,7 @@ public final class WanceMdbReader {
         out.put("displacementUnit", "mm");
         out.put("pointCount", points.size());
         out.put("testNo", testNo);
+        if (!geometry.isEmpty()) out.put("geometry", geometry);
         out.put("deviceVendor", "万测");
         out.put("deviceSoftware", "TestPilot");
         out.put("source", "wance_mdb");
@@ -88,6 +93,24 @@ public final class WanceMdbReader {
         out.put("fileModifiedAt", Files.getLastModifiedTime(mdb).toInstant().toString());
         parseFileNameTime(mdb.getFileName().toString()).ifPresent(t -> out.put("experimentAtFromFile", t.toString()));
         return out;
+    }
+
+    private static Map<String, Object> readGeometry(Database db, Integer testNo) throws IOException {
+        for (String tableName : List.of("TestNo", "TestNoParam")) {
+            if (!db.getTableNames().contains(tableName)) continue;
+            for (Row row : db.getTable(tableName)) {
+                Integer rowTestNo = asInt(row.get("TestNo"));
+                if (testNo != null && !testNo.equals(rowTestNo)) continue;
+                Double area = asDouble(row.get("Area"));
+                Double gauge = asDouble(row.get("GaugeLength"));
+                if (area != null && gauge != null && area > 0 && gauge > 0
+                        && Double.isFinite(area) && Double.isFinite(gauge)) {
+                    return Map.of("area", area, "gaugeLength", gauge,
+                            "strainSource", "crosshead", "source", "mdb_" + tableName.toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        return Map.of();
     }
 
     static List<Map<String, Object>> downsample(List<Map<String, Object>> points, int limit) {
@@ -102,7 +125,7 @@ public final class WanceMdbReader {
         Matcher m = FILE_TIME.matcher(name);
         if (!m.find()) return Optional.empty();
         try {
-            LocalDateTime ldt = LocalDateTime.parse(m.group(0), LOCAL_FMT);
+            LocalDateTime ldt = LocalDateTime.parse(name.substring(0, 19), LOCAL_FMT);
             return Optional.of(ldt.atZone(ZoneId.systemDefault()).toInstant());
         } catch (Exception e) {
             return Optional.empty();

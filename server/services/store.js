@@ -564,9 +564,11 @@ async function listTasks() {
 
 async function createTask({ expId, groupIds, place, timeText, note, tip, teacher }) {
   const exps = await query('SELECT * FROM experiments WHERE id = ?', [expId]);
-  if (!exps[0]) throw Object.assign(new Error('实验不存在'), { status: 400 });
+  const exp = exps[0] || (ASSIGN_EXPERIMENT_NAMES[expId]
+    ? { id: expId, name: ASSIGN_EXPERIMENT_NAMES[expId] }
+    : null);
+  if (!exp) throw Object.assign(new Error('实验不存在'), { status: 400 });
   if (!groupIds || !groupIds.length) throw Object.assign(new Error('请选择小组'), { status: 400 });
-  const exp = exps[0];
   const tipText = String(tip || '').trim();
 
   const ungrouped = await query('SELECT sid FROM students WHERE group_id IS NULL OR group_id = ""');
