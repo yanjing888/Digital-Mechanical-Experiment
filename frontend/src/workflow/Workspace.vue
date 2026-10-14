@@ -13,6 +13,7 @@ import ScoreConfirmation from './ScoreConfirmation.vue'
 import ReportDesk from './ReportDesk.vue'
 import Gradebook from './Gradebook.vue'
 import ToastNotice from './ToastNotice.vue'
+import { newId } from './id.js'
 const props = defineProps({ page: String, teacher: Boolean, sid: String, taskId: String })
 const activeTrial = ref('STEEL_TENS')
 function call(path, method = 'GET', body) {
@@ -95,11 +96,10 @@ let metadataBaseline = {}
 const selectionKey = `lab-run-selection-${props.teacher ? 'teacher' : `${props.sid}-${props.taskId}`}`
 const angle = ref('正面'), images = reactive({}), video = ref(null), camera = ref(false)
 let stream, timer, disposed = false
-const newId = () => crypto.randomUUID()
 const settings = ref({ catalog: [], requiredSections: [] }), showSettings = ref(false)
 const deduction = reactive({ items: [], reason: '' }), grade = reactive({ score: 100, comment: '', reason: '' })
 const controlReason = ref('')
-const reportGrades = reactive({}), reportPreview = ref(''), requestId = ref(crypto.randomUUID())
+const reportGrades = reactive({}), reportPreview = ref(''), requestId = ref(newId())
 const myDraft = computed(() => run.value?.drafts?.[props.sid])
 const myReports = computed(() => run.value?.reports || [])
 const workflowTabs = computed(() => [['capture', '断口采集'], ['data', '实验数据'], ['operation', '操作记录'], ['report', '个人报告']])
@@ -225,7 +225,7 @@ async function openReport(report) {
 }
 async function uploadReport(file) {
   if (!file) return
-  run.value = await call(`/runs/${run.value.id}/report-file`, 'POST', form(file)); requestId.value = crypto.randomUUID()
+  run.value = await call(`/runs/${run.value.id}/report-file`, 'POST', form(file)); requestId.value = newId()
 }
 async function review(report, actionName, values) {
   const form = values || reportGrades[report.id] || {}
@@ -328,7 +328,7 @@ async function select(id) {
   sessionStorage.setItem(selectionKey, id)
   Object.assign(grade, { score: run.value.operationScore, comment: run.value.finalComment || '', reason: '' })
   deduction.items = []; deduction.reason = ''; controlReason.value = ''
-  requestId.value = crypto.randomUUID()
+  requestId.value = newId()
   if (reportPreview.value) URL.revokeObjectURL(reportPreview.value); reportPreview.value = ''
   for (const report of run.value.reports) reportGrades[report.id] = { score: report.finalScore ?? 100, comment: report.finalComment || '' }
   const reports = run.value.reports || []
