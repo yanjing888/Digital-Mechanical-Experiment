@@ -890,7 +890,8 @@ export function bootApp() {
       ? meta.ungrouped
       : students.filter(function (s) { return !s.groupId; });
     var assignedGroups = new Set(tasks.flatMap(function (t) { return t.groupIds || []; }));
-    var readyGroups = groups.filter(function (g) { return (g.members || []).length > 0 && !assignedGroups.has(g.id); });
+    var pendingGroups = groups.filter(function (g) { return !assignedGroups.has(g.id); });
+    var readyGroups = pendingGroups.filter(function (g) { return (g.members || []).length > 0; });
     var canDispatch = students.length > 0 && readyGroups.length > 0;
     var draft = ui.assignDraft || {};
     var exps = ASSIGN_EXPERIMENTS;
@@ -904,7 +905,7 @@ export function bootApp() {
         + '</label>';
     }).join('') : '<div class="empty-soft">' + (students.length ? '已全部分组' : '暂无学生') + '</div>';
 
-    var groupCards = groups.length ? groups.map(function (g) {
+    var groupCards = pendingGroups.length ? pendingGroups.map(function (g) {
       var members = g.members || [];
       var memberHtml = members.length ? members.map(function (m) {
         return '<div class="member-row">'
@@ -912,11 +913,11 @@ export function bootApp() {
           + '<button type="button" class="link-btn btn-ungroup-one" data-sid="' + esc(m.sid) + '">移出</button>'
           + '</div>';
       }).join('') : '<div class="empty-soft sm">暂无成员</div>';
-      var ready = members.length > 0 && !assignedGroups.has(g.id);
+      var ready = members.length > 0;
       return '<div class="group-card' + (ready ? ' is-ready' : '') + '" data-gid="' + esc(g.id) + '">'
         + '<div class="group-card-head">'
         +   '<div><h4>' + esc(g.name) + '</h4><span class="sub">' + members.length + ' 人</span></div>'
-        +   (assignedGroups.has(g.id) ? '<span class="tag ok">已下发</span>' : (ready ? '<label><input type="checkbox" name="dispatch-group" value="' + esc(g.id) + '"' + (!draft.groupIds || draft.groupIds.indexOf(g.id) >= 0 ? ' checked' : '') + '> 本次下发</label>' : ''))
+        +   (ready ? '<label><input type="checkbox" name="dispatch-group" value="' + esc(g.id) + '"' + (!draft.groupIds || draft.groupIds.indexOf(g.id) >= 0 ? ' checked' : '') + '> 本次下发</label>' : '')
         +   '<button type="button" class="link-btn danger btn-del-group" data-gid="' + esc(g.id) + '">删除</button>'
         + '</div>'
         + '<div class="group-members">' + memberHtml + '</div>'
@@ -925,9 +926,9 @@ export function bootApp() {
         + '</div>';
     }).join('') : '';
 
-    var groupPanelBody = groups.length
+    var groupPanelBody = pendingGroups.length
       ? '<div class="group-list">' + groupCards + '</div>'
-      : '<div class="empty-soft">暂无小组</div>';
+      : '<div class="empty-soft">暂无待下发的小组</div>';
 
     var expOpts = exps.map(function (e) {
       return '<option value="' + e.id + '"' + (draft.expId === e.id ? ' selected' : '') + (e.available ? '' : ' disabled') + '>'
@@ -987,7 +988,7 @@ export function bootApp() {
       +         '</div>'
       +         '<div class="group-side">'
       +           '<div class="panel-head">'
-      +             '<strong>小组列表' + (groups.length ? ' · ' + groups.length : '') + '</strong>'
+      +             '<strong>小组列表 · ' + pendingGroups.length + '</strong>'
       +           '</div>'
       +           groupPanelBody
       +         '</div>'
