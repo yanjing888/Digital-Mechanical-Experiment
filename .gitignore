@@ -13,3 +13,5 @@ _make_*
 .trae-html-share-packages/
 _restore/
 .vscode/
+.runtime/
+artifacts/

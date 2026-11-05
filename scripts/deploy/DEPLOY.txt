@@ -1,0 +1,30 @@
+Windows deployment
+==================
+Prerequisites: Java 21+, Python 3.10+, and an existing configured MySQL database.
+
+1. Extract the ZIP to a writable directory.
+2. Copy .env.example to .env and set DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME.
+   For an upgrade, keep the existing server .env and data/uploads directories.
+3. If needed, set JAVA_HOME to the server's JDK directory. Python must be on PATH.
+4. Double-click start.bat. The first run creates .venv and installs Python dependencies
+   from requirements.txt (requires internet). Later runs reuse that environment.
+5. Open http://SERVER-IP:8586. The JAR contains the compiled frontend; no Node/Vite
+   process is required. Allow the web port through the server firewall as needed.
+6. Double-click stop.bat to stop both processes started by this deployment.
+
+Ports: 8586 = web/API; 8090 = fracture analysis (loopback only).
+If retaining an existing Nginx server, keep its /api/ proxy pointing to 127.0.0.1:8586.
+Serve the bundled frontend by proxying / to 8586 too, or update Nginx's static files
+with a fresh frontend build. This ZIP does not install or start Nginx.
+
+Logs: logs/backend.out.log, logs/backend.err.log, logs/fracture.out.log,
+logs/fracture.err.log. Startup checks both HTTP endpoints. If either fails, processes
+started by that attempt are stopped. Port conflicts are reported without killing
+unrelated processes. Stop services before replacing application files.
+
+For Wance MDB acquisition, edit config/wance.properties: data.dir=actual/data/path
+(use forward slashes). Existing experimental records/uploads must be retained
+separately; the release ZIP contains neither production data nor database credentials.
+
+Advanced: powershell -NoProfile -ExecutionPolicy Bypass -File services.ps1
+          -Action start -BackendPort 8586 -FracturePort 8090

@@ -36,6 +36,19 @@ npm run dev
 
 也可运行 `scripts/start-spring-vue.bat` 启动三个服务。
 
+Windows 服务器一体化部署包（前端 + Java 后端 + Python 断口分析）可用以下命令生成：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-deploy.ps1
+```
+
+压缩包生成在 `artifacts` 目录。服务器需安装 Java 21+、Python 3.10+，并配置 MySQL。
+解压后将 `.env.example` 复制为 `.env` 并填写服务器数据库配置；升级时保留服务器原有 `.env` 和业务数据。
+双击 `start.bat` 同时启动断口分析和 Java 服务，并检查两个 HTTP 接口就绪；双击 `stop.bat` 同时停止。
+首次启动会创建 Python 虚拟环境并联网安装依赖，后续直接复用。
+通过 `http://服务器IP:8586` 访问，前端已内置到 JAR，不需要另开 Vite。
+现有 Nginx 可以继续反向代理到 8586，详见包内 `DEPLOY.txt`。部署包不包含 JDK、Python、MySQL 和生产数据。
+
 ## 已实施功能
 
 - 实验记录以“每次实验”为单位，保存成员快照、试件编号、设备编号、断口照片、设备原始数据及归档快照。
