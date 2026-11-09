@@ -575,7 +575,6 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <div class="wf-classroom-bar">
             <div class="wf-actions wf-classroom-bar__actions">
               <button type="button" :class="['btn', run.classOpen ? 'btn-primary' : 'btn-ghost']" :disabled="busy || (run.classOpen && !allTrialsComplete)" @click="action(() => control(run.classOpen ? 'close' : 'open'), run.classOpen ? '操作成绩已确认' : '已重新开放扣分调整')">{{ run.classOpen ? '确认操作成绩' : '重新调整扣分' }}</button>
-              <p v-if="run.classOpen && allTrialsComplete" class="wf-hint" role="status">{{ activeDeductions.length ? '确认后，学生可选择提交记录或申请重做。' : '本次无扣分，确认后的操作成绩为 100 分。' }}</p>
               <button v-if="run.archived && run.classOpen" type="button" class="btn btn-ghost" :disabled="busy" @click="action(() => control('return'), '已退回，学生可补采或修正后重新提交')">退回学生修改</button>
             </div>
           </div>
