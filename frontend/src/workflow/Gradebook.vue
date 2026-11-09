@@ -1,10 +1,12 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { call } from './api.js'
+import { api } from '../api.js'
 import ToastNotice from './ToastNotice.vue'
 
 const data = ref({ experiments: [], students: [] })
 const query = ref(''), selectedClass = ref('all'), busy = ref(false), error = ref('')
+const exporting = ref(false)
 const classes = computed(() => [...new Set(data.value.students.map(student => student.cls).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-CN')))
 const students = computed(() => data.value.students.filter(student => {
   const text = `${student.name} ${student.sid} ${student.cls || ''}`.toLowerCase()
@@ -18,6 +20,20 @@ async function load() {
   try { data.value = await call('/gradebook') } catch (e) { error.value = e.message } finally { busy.value = false }
 }
 onMounted(load)
+async function exportExcel() {
+  if (exporting.value || busy.value || !students.value.length) return
+  exporting.value = true; error.value = ''
+  try {
+    const params = new URLSearchParams({ className: selectedClass.value === 'all' ? '' : selectedClass.value, query: query.value.trim() })
+    const response = await fetch(`/api/workflow/gradebook/export?${params}`, { headers: { Authorization: `Bearer ${api.getToken()}` } })
+    if (!response.ok) { const result = await response.json().catch(() => ({})); throw new Error(result.error || '导出失败，请稍后重试') }
+    const url = URL.createObjectURL(await response.blob())
+    const link = document.createElement('a'); link.href = url; link.download = '实验成绩总表.xlsx'
+    document.body.appendChild(link); link.click(); link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (err) { error.value = err.message || '导出失败，请稍后重试' }
+  finally { exporting.value = false }
+}
 </script>
 
 <template>
@@ -25,7 +41,7 @@ onMounted(load)
     <ToastNotice :message="error" type="error" @close="error = ''" />
     <header class="gradebook-head">
       <div class="gradebook-counts"><span>{{ classes.length }} 个班级</span><span>{{ data.students.length }} 名学生</span><span>{{ completed }} 人已有完整成绩</span></div>
-      <button type="button" class="btn btn-ghost" :disabled="busy" @click="load">刷新</button>
+      <div class="gradebook-actions"><button type="button" class="btn btn-ghost" :disabled="busy || exporting" @click="load">刷新</button><button type="button" class="btn btn-primary" :disabled="busy || exporting || !students.length" @click="exportExcel">{{ exporting ? '正在导出…' : '导出 Excel' }}</button></div>
     </header>
 
     <div class="gradebook-experiments">
@@ -65,4 +81,7 @@ onMounted(load)
 
 <style scoped>
 .gradebook{background:#fff;border:1px solid #dfe7eb;border-radius:10px;padding:22px;min-width:0}.gradebook-head,.gradebook-head>div,.gradebook-counts,.gradebook-experiments article header,.gradebook-tools{display:flex;align-items:center}.gradebook-head{justify-content:space-between;gap:20px;margin-bottom:18px}.gradebook-head>.gradebook-counts{flex:1;min-width:0}.gradebook-head>.btn{flex-shrink:0;white-space:nowrap}.gradebook h2{margin:0;font-size:22px}.gradebook-counts{gap:8px;flex-wrap:wrap}.gradebook-counts span{padding:5px 9px;border-radius:5px;background:#f1f5f6;color:#52666f;font-size:12px}.gradebook-experiments{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:20px}.gradebook-experiments article{padding:16px;border:1px solid #dce6e9;border-radius:8px;background:#fbfcfd}.gradebook-experiments article.disabled{background:#f6f7f8;color:#78878e}.gradebook-experiments article header{justify-content:space-between;gap:12px}.gradebook-experiments article header span{padding:4px 7px;border-radius:4px;background:#e8f4f5;color:#087c88;font-size:12px}.gradebook-experiments article.disabled header span{background:#e8ecee;color:#687980}.gradebook-trials{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.gradebook-trials span{font-size:11px;color:#52666f;background:#eef4f5;padding:4px 6px;border-radius:4px}.gradebook-tools{gap:12px;padding:14px;background:#f6f8f9;border-radius:7px;margin-bottom:16px}.gradebook-tools input{width:min(280px,100%)}.gradebook-tools span{margin-left:auto;color:#647980;font-size:13px}.gradebook-error{padding:12px;background:#fff0ee;color:#a33728}.gradebook-table{overflow:auto}.gradebook table{width:100%;min-width:1050px;border-collapse:collapse;font-size:13px}.gradebook th,.gradebook td{padding:13px 12px;border:1px solid #e1e8eb;text-align:center}.gradebook th{background:#f0f6f7;color:#405660;white-space:nowrap}.gradebook td:first-child,.gradebook td:nth-child(2){text-align:left}.gradebook td strong,.gradebook td small{display:block}.gradebook td b{color:#087c88;font-size:16px}.gradebook td small{margin-top:5px;color:#788990;font-size:11px}.gradebook-empty{text-align:center!important;color:#788990;padding:28px!important}@media(max-width:900px){.gradebook-experiments{grid-template-columns:1fr}.gradebook-tools{align-items:stretch;flex-direction:column}.gradebook-tools span{margin-left:0}.gradebook-head{align-items:flex-start}.gradebook{padding:14px}}
+</style>
+<style scoped>
+.gradebook-head{flex-wrap:wrap}.gradebook-actions{display:flex;gap:10px;margin-left:auto;flex-shrink:0;white-space:nowrap}.gradebook-actions .btn{background-image:none;box-shadow:none}.gradebook-actions .btn-primary{background:#245b65;border-color:#245b65;color:#fff}
 </style>

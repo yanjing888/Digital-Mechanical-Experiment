@@ -18,8 +18,15 @@ public class WorkflowController {
     private final ReviewService review;
     private final cn.ncut.lab.service.ClassroomService classroom;
     private final cn.ncut.lab.service.ReportDeskService reports;
-    public WorkflowController(RunService runs,TeachingService teaching,ReviewService review,cn.ncut.lab.service.ClassroomService classroom,cn.ncut.lab.service.ReportDeskService reports) { this.runs=runs;this.teaching=teaching;this.review=review;this.classroom=classroom;this.reports=reports; }
+    private final cn.ncut.lab.service.GradebookExporter gradebookExporter;
+    public WorkflowController(RunService runs,TeachingService teaching,ReviewService review,cn.ncut.lab.service.ClassroomService classroom,cn.ncut.lab.service.ReportDeskService reports,cn.ncut.lab.service.GradebookExporter gradebookExporter) { this.runs=runs;this.teaching=teaching;this.review=review;this.classroom=classroom;this.reports=reports;this.gradebookExporter=gradebookExporter; }
     @GetMapping("/gradebook") public Object gradebook(HttpServletRequest q) {return reports.gradebook(actor(q));}
+    @GetMapping("/gradebook/export") public ResponseEntity<byte[]> exportGradebook(HttpServletRequest q,@RequestParam(defaultValue="") String className,@RequestParam(defaultValue="") String query) {
+        byte[] file=gradebookExporter.export(reports.gradebook(actor(q)),className,query);
+        return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION,ContentDisposition.attachment().filename("实验成绩总表.xlsx",StandardCharsets.UTF_8).build().toString())
+                .header(HttpHeaders.CACHE_CONTROL,"no-store")
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).body(file);
+    }
     @GetMapping("/report-desk") public Object reportDesk(HttpServletRequest q,@RequestParam String taskId) {return reports.roster(taskId,actor(q));}
     @GetMapping("/report-desk/{id}/compare") public Object compareReports(HttpServletRequest q,@PathVariable String id,@RequestParam String otherId) {return reports.compare(id,otherId,actor(q));}
     @PostMapping("/report-desk/{id}/similarity") public Object checkReport(HttpServletRequest q,@PathVariable String id) {return reports.check(id,actor(q));}
