@@ -72,7 +72,7 @@ class WorkflowTest {
         runs.provision("task");runId=str(runs.runs(student).get(0).get("id"));
     }
     @Test void scoreConfirmationBelongsToEachStudentAndExpiresAfterCorrection() throws Exception {
-        archive();configure();
+        legacyArchive();configure();
         assertEquals(409,assertThrows(ApiException.class,()->classroom.confirm(runId,student,Map.of("scoreVersion",0))).getStatus());
         teaching.control(runId,teacher,body("action","close"));
         classroom.confirm(runId,student,Map.of("scoreVersion",0));
@@ -90,7 +90,7 @@ class WorkflowTest {
         assertEquals(85.0,map(runs.detail(runId,student).get("myConfirmation")).get("score"));
     }
     @Test void personalReportSubmissionWaitsForTeacherAndStudentScoreConfirmation() throws Exception {
-        archive();
+        legacyArchive();
         assertEquals(false,runs.detail(runId,student).get("myScoreConfirmed"));
         uploadReport(student);
         assertEquals(409,assertThrows(ApiException.class,()->teaching.submit(runId,student,Map.of("requestId","before-teacher"))).getStatus());
@@ -103,7 +103,7 @@ class WorkflowTest {
         assertEquals(true,detail.get("myScoreConfirmed"));
     }
     @Test void gradebookListsAllExperimentsAndPublishedStudentScores() throws Exception {
-        archive();submit(student,"gradebook-report");
+        legacyArchive();submit(student,"gradebook-report");
         var report=list(runs.detail(runId,teacher).get("reports")).get(0);
         var gradeBody=body("action","grade");gradeBody.put("score",91);gradeBody.put("comment","报告完整");
         teaching.review(runId,str(report.get("id")),teacher,gradeBody);
@@ -119,7 +119,7 @@ class WorkflowTest {
         var beforeArchiveBody=body("items",List.of("door"));beforeArchiveBody.put("reason","未按规范操作");
         teaching.deduction(runId,teacher,beforeArchiveBody);
         assertEquals(85.0,runs.detail(runId,student).get("operationScore"));
-        archive();
+        legacyArchive();
         var finalRecord=runs.detail(runId,student);
         assertEquals(85.0,finalRecord.get("operationScore"));assertEquals(1,list(finalRecord.get("deductions")).size());
         var summary=runs.runs(teacher).stream().filter(item->runId.equals(item.get("id"))).findFirst().orElseThrow();
@@ -138,7 +138,7 @@ class WorkflowTest {
         assertEquals(1,list(runs.detail(runId,student).get("trialItems")).size());
         assertThrows(ApiException.class,()->runs.update(runId,student,body("geometry",Map.of("area",0,"gaugeLength",50))));
         runs.update(runId,student,body("geometry",Map.of("area",80,"gaugeLength",50)));
-        archive();
+        legacyArchive();
         assertEquals(80.0,map(runs.detail(runId,student).get("geometry")).get("area"));
         assertEquals(true,runs.detail(runId,student).get("archived"));
         assertThrows(ApiException.class,()->runs.validateTrials(List.of()));
@@ -163,7 +163,7 @@ class WorkflowTest {
         assertEquals(409,assertThrows(ApiException.class,()->runs.importData(other,outsider,csv(),2,1,0,"N")).getStatus());
     }
     @Test void reportDeskIncludesWholeTaskAndLocatesOriginalText() throws Exception {
-        archive();submit(student,"desk-1");submit(mate,"desk-2");
+        legacyArchive();submit(student,"desk-1");submit(mate,"desk-2");
         var roster=desk.roster("task",teacher);assertEquals(3,roster.size());
         var reports=list(runs.detail(runId,teacher).get("reports"));String left=str(reports.get(0).get("id")),right=str(reports.get(1).get("id"));
         desk.begin(left,teacher);assertEquals("reviewing",list(runs.detail(runId,teacher).get("reports")).get(0).get("reviewStatus"));
@@ -187,7 +187,7 @@ class WorkflowTest {
     @Test void studentHomeFollowsWorkflowInsteadOfLegacyStatus() throws Exception {
         Map<String,Object> studentInfo=new LinkedHashMap<>(Map.of("sid","s1","taskId","task","status","assigned"));
         Map<String,Object> session=new LinkedHashMap<>();session.put("student",studentInfo);
-        archive();runs.enrichStudentSession(session);assertEquals("lab_done",studentInfo.get("status"));
+        legacyArchive();runs.enrichStudentSession(session);assertEquals("lab_done",studentInfo.get("status"));
         submit(student,"home-report");runs.enrichStudentSession(session);assertEquals("submitted",studentInfo.get("status"));
         assertEquals(2,list(session.get("mates")).size());
         var report=list(runs.detail(runId,student).get("reports")).get(0);
@@ -221,9 +221,14 @@ class WorkflowTest {
     Map<String,Object> body(String key,Object value) {var b=new LinkedHashMap<String,Object>();b.put("revision",runs.detail(runId,teacher).get("revision"));b.put(key,value);return b;}
     MockMultipartFile csv() {return new MockMultipartFile("file","data.csv","text/csv","位移,力\n0,0\n1,1000\n2,2000".getBytes(StandardCharsets.UTF_8));}
     MockMultipartFile photo() throws Exception {var out=new ByteArrayOutputStream();ImageIO.write(new BufferedImage(500,500,BufferedImage.TYPE_INT_RGB),"png",out);return new MockMultipartFile("file","fracture.png","image/png",out.toByteArray());}
-    void archive() throws Exception {
-        runs.photo(runId,student,photo(),"正面");runs.importData(runId,student,csv(),2,1,0,"N");runs.archive(runId,student,body("unused",0));
+    void legacyArchive() throws Exception {
+        collect();
+        // Compatibility fixture: records submitted by releases that allowed submission before grading.
+        var legacy=runs.load(runId,student,false);legacy.put("archived",true);legacy.put("archivedAt",now());legacy.put("status","archived");
+        runs.save(legacy,student,"旧版本已提交记录");
     }
+    void collect() throws Exception { runs.photo(runId,student,photo(),"正面");runs.importData(runId,student,csv(),2,1,0,"N"); }
+    Map<String,Object> acceptBody() { var b=body("scoreVersion",runs.detail(runId,student).get("scoreVersion"));return b; }
     void configure() {var s=new LinkedHashMap<>(teaching.settings());s.put("catalogConfirmed",true);s.put("catalog",List.of(Map.of("id","door","label","开门","points",15),Map.of("id","order","label","纪律","points",10)));teaching.settings(teacher,s);}
     void submit(Actor a,String key) throws Exception {
         if(Boolean.TRUE.equals(runs.detail(runId,a).get("classOpen"))) teaching.control(runId,teacher,body("action","close"));
@@ -241,8 +246,55 @@ class WorkflowTest {
         runs.photo(runId,student,photo(),"正面");assertEquals(1,list(runs.detail(runId,mate).get("photos")).size());
         assertThrows(ApiException.class,()->runs.archive(runId,student,body("unused",0)));
         assertEquals("pending",runs.runs(outsider).get(0).get("status"));
-        archive();var r=runs.detail(runId,student);assertEquals(2.0,map(r.get("data")).get("maxF"));assertTrue((Boolean)r.get("archived"));
+        legacyArchive();var r=runs.detail(runId,student);assertEquals(2.0,map(r.get("data")).get("maxF"));assertTrue((Boolean)r.get("archived"));
         assertThrows(ApiException.class,()->runs.importData(runId,student,csv(),2,1,0,"N"));
+    }
+    @Test void teacherMustConfirmDeductionsBeforeStudentAcceptsAndArchives() throws Exception {
+        assertEquals(409,assertThrows(ApiException.class,()->teaching.control(runId,teacher,body("action","close"))).getStatus());
+        collect();configure();
+        var deduction=body("items",List.of("door"));deduction.put("reason","未按规范操作");teaching.deduction(runId,teacher,deduction);
+        assertEquals(409,assertThrows(ApiException.class,()->runs.archive(runId,student,acceptBody())).getStatus());
+        teaching.control(runId,teacher,body("action","close"));
+        assertFalse(Boolean.TRUE.equals(runs.detail(runId,student).get("archived")));
+        assertEquals(85.0,runs.detail(runId,student).get("operationScore"));
+        assertEquals(409,assertThrows(ApiException.class,()->runs.importData(runId,student,csv(),2,1,0,"N")).getStatus());
+        var result=runs.archive(runId,student,acceptBody());
+        assertEquals(true,result.get("archived"));assertEquals(true,result.get("myScoreConfirmed"));
+        assertEquals(false,runs.detail(runId,mate).get("myScoreConfirmed"));
+        assertEquals(85.0,map(result.get("myConfirmation")).get("score"));
+    }
+    @Test void studentCanRequestRetakeBeforeSubmittingAndTeacherCanArrangeIt() throws Exception {
+        collect();teaching.control(runId,teacher,body("action","close"));
+        review.requestRetake(runId,student,Map.of("reason","希望重新完成操作"));
+        assertFalse(Boolean.TRUE.equals(runs.detail(runId,student).get("archived")));
+        assertEquals(409,assertThrows(ApiException.class,()->runs.archive(runId,mate,acceptBody())).getStatus());
+        var body=body("name","重做小组");body.put("members",List.of("s1"));body.put("reason","批准学生重做申请");
+        var child=map(review.createRetake(runId,teacher,body));
+        assertNotEquals(runId,child.get("id"));assertEquals(runId,child.get("parentId"));
+        assertTrue(list(runs.detail(runId,student).get("photos")).size()>0);
+        assertEquals("arranged",map(runs.detail(runId,student).get("retakeRequest")).get("status"));
+    }
+    @Test void scoreChangesInvalidateAnEarlierDecisionAndCannotBeAcceptedSilently() throws Exception {
+        collect();configure();teaching.control(runId,teacher,body("action","close"));
+        var viewed=acceptBody();
+        teaching.control(runId,teacher,body("action","open"));
+        var deduction=body("items",List.of("door"));deduction.put("reason","补充核对现场操作");teaching.deduction(runId,teacher,deduction);
+        teaching.control(runId,teacher,body("action","close"));
+        viewed.put("revision",runs.detail(runId,student).get("revision"));
+        assertEquals(409,assertThrows(ApiException.class,()->runs.archive(runId,student,viewed)).getStatus());
+        assertFalse(Boolean.TRUE.equals(runs.detail(runId,student).get("archived")));
+        assertFalse(Boolean.TRUE.equals(runs.detail(runId,student).get("myScoreConfirmed")));
+        runs.archive(runId,student,acceptBody());
+    }
+    @Test void decliningRetakeRestoresTheStudentDecisionWithoutChangingData() throws Exception {
+        collect();teaching.control(runId,teacher,body("action","close"));
+        review.requestRetake(runId,student,Map.of("reason","希望重做"));
+        assertEquals(403,assertThrows(ApiException.class,()->review.rejectRetake(runId,student,body("reason","自行处理"))).getStatus());
+        var photos=runs.detail(runId,student).get("photos");
+        review.rejectRetake(runId,teacher,body("reason","已复核，按本次操作记录计分"));
+        assertEquals("rejected",map(runs.detail(runId,student).get("retakeRequest")).get("status"));
+        assertEquals(photos,runs.detail(runId,student).get("photos"));
+        runs.archive(runId,student,acceptBody());
     }
     @Test void combinedTaskKeepsFourTrialsSeparateAndSubmitsOneReport() throws Exception {
         Map<String,Object> original=runs.load(runId,student,false);
@@ -262,7 +314,8 @@ class WorkflowTest {
             for(var item:list(detail.get("trialItems")))assertEquals(item.get("id"),item.get("specimenId"));
             assertTrue(list(detail.get("trialItems")).stream().noneMatch(item->item.containsKey("operationScore")));
             assertEquals(4,list(detail.get("trialItems")).stream().map(t->map(t.get("data")).get("fileId")).distinct().count());
-            runs.archive(runId,student,body("unused",0));
+            teaching.control(runId,teacher,body("action","close"));
+            runs.archive(runId,student,acceptBody());
             assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM run_archives WHERE run_id=?",Integer.class,runId));
             assertEquals(100.0,runs.detail(runId,student).get("operationScore"));
             assertThrows(ApiException.class,()->runs.archive(runId,student,body("unused",0)));
@@ -274,12 +327,12 @@ class WorkflowTest {
     }
     @Test void foreignRunAndReportFilesAreProtected() throws Exception {
         assertEquals(403,assertThrows(ApiException.class,()->runs.detail(runId,outsider)).getStatus());
-        archive();submit(student,"request-1");var r=runs.detail(runId,student);String fid=str(list(r.get("reports")).get(0).get("fileId"));
+        legacyArchive();submit(student,"request-1");var r=runs.detail(runId,student);String fid=str(list(r.get("reports")).get(0).get("fileId"));
         assertEquals(403,assertThrows(ApiException.class,()->runs.getFile(fid,mate)).getStatus());assertEquals(0,list(runs.detail(runId,mate).get("reports")).size());
         assertNotNull(runs.getFile(fid,teacher).get("contents"));
     }
     @Test void classroomScoreAlwaysFollowsRecordedDeductions() throws Exception {
-        archive();configure();var b=body("items",List.of("door"));b.put("reason","实验运行时尝试打开保护罩");teaching.deduction(runId,teacher,b);
+        legacyArchive();configure();var b=body("items",List.of("door"));b.put("reason","实验运行时尝试打开保护罩");teaching.deduction(runId,teacher,b);
         assertEquals(85.0,runs.detail(runId,student).get("operationScore"));
         b=body("action","grade");b.put("score",92);b.put("comment","复核后调整");b.put("reason","现场复核");teaching.control(runId,teacher,b);
         b=body("items",List.of("order"));b.put("reason","打闹");teaching.deduction(runId,teacher,b);
@@ -294,7 +347,7 @@ class WorkflowTest {
         var b=body("specimenId","A");runs.update(runId,student,b);b.put("specimenId","B");assertEquals(409,assertThrows(ApiException.class,()->runs.update(runId,mate,b)).getStatus());
     }
     @Test void duplicateSubmissionProducesOneReceiptAndReturnsCreateNewVersions() throws Exception {
-        archive();submit(student,"same-request");teaching.submit(runId,student,Map.of("requestId","same-request"));
+        legacyArchive();submit(student,"same-request");teaching.submit(runId,student,Map.of("requestId","same-request"));
         var reports=list(runs.detail(runId,student).get("reports"));assertEquals(1,reports.size());assertNotNull(reports.get(0).get("sha256"));
         var b=body("action","return");b.put("comment","补充分析");teaching.review(runId,str(reports.get(0).get("id")),teacher,b);submit(student,"next-request");
         reports=list(runs.detail(runId,student).get("reports"));assertEquals(2,reports.size());assertEquals(1,reports.get(0).get("version"));assertEquals(2,reports.get(1).get("version"));
@@ -313,14 +366,14 @@ class WorkflowTest {
         assertEquals("other-task",db.queryForObject("SELECT task_id FROM students WHERE sid='s4'",String.class));
     }
     @Test void retakesPreserveHistoryAndDoNotRegroupStudents() throws Exception {
-        archive();var b=body("name","临时组");b.put("reason","现场重新实验");b.put("members",List.of("s1","s3"));
+        legacyArchive();var b=body("name","临时组");b.put("reason","现场重新实验");b.put("members",List.of("s1","s3"));
         var child=(Map<String,Object>)review.createRetake(runId,teacher,b);String cid=str(child.get("id"));
         assertEquals(2,child.get("attempt"));assertEquals("g1",db.queryForObject("SELECT group_id FROM students WHERE sid='s1'",String.class));
         assertTrue((Boolean)runs.detail(runId,teacher).get("archived"));assertTrue(list(child.get("photos")).isEmpty());assertEquals(403,assertThrows(ApiException.class,()->runs.detail(cid,mate)).getStatus());
         assertEquals(2,runs.runs(student).size());assertFalse(((List<?>)child.get("adoptedFor")).contains("s1"));
     }
     @Test void similarityFlagsOnlyLaterStudentAndDoesNotChangeScores() throws Exception {
-        archive();submit(student,"one");Thread.sleep(5);submit(mate,"two");review.similarity(runId,teacher);
+        legacyArchive();submit(student,"one");Thread.sleep(5);submit(mate,"two");review.similarity(runId,teacher);
         var reports=list(runs.detail(runId,teacher).get("reports"));assertFalse((Boolean)map(reports.get(0).get("similarity")).get("flagged"));assertTrue((Boolean)map(reports.get(1).get("similarity")).get("flagged"));
         assertNull(reports.get(1).get("finalScore"));assertFalse(list(runs.detail(runId,mate).get("reports")).get(0).containsKey("similarity"));
     }

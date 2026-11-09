@@ -10,6 +10,7 @@ const props = defineProps({
   images: { type: Object, default: () => ({}) },
   deductions: { type: Array, default: () => [] },
   readOnly: { type: Boolean, default: true },
+  showEvaluation: { type: Boolean, default: true },
 })
 
 const stamp = v => (v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '—')
@@ -36,7 +37,7 @@ const operationScore = computed(() => {
         <div><dt>实验时间</dt><dd>{{ run.experimentAt ? stamp(run.experimentAt) : (run.timeText || '—') }}</dd></div>
         <div v-if="run.specimenId"><dt>试件编号</dt><dd>{{ run.specimenId }}</dd></div>
         <div v-if="run.deviceId"><dt>设备编号</dt><dd>{{ run.deviceId }}</dd></div>
-        <div><dt>记录状态</dt><dd>{{ run.archived ? `已提交 · ${stamp(run.archivedAt)}` : '待确认提交' }}</dd></div>
+        <div><dt>记录状态</dt><dd>{{ run.archived ? `已提交 · ${stamp(run.archivedAt)}` : run.classOpen ? '待教师确认扣分' : '待学生接受成绩并提交' }}</dd></div>
       </dl>
     </header>
 
@@ -92,7 +93,7 @@ const operationScore = computed(() => {
     </section>
 
     </template>
-    <section class="wf-op-doc__section">
+    <section v-if="showEvaluation" class="wf-op-doc__section">
       <h2>本课次操作评价</h2>
       <div class="wf-op-doc__scoreline">
         <div class="wf-op-doc__score-main">

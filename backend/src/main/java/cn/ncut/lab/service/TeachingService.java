@@ -72,6 +72,7 @@ public class TeachingService {
     @Transactional
     public Object voidDeduction(String id,String did,Actor a,Map<String,Object> b) {
         teacher(a);Map<String,Object> r=runs.load(id,a,true);runs.checkRevision(r,b);
+        if(!Boolean.TRUE.equals(r.get("classOpen")))throw new ApiException(409,"扣分已确认，请先重新开放评分再撤销");
         String reason=required(b.get("reason"),"撤销理由");boolean found=false;
         for(var d:list(r.get("deductions")))if(did.equals(d.get("id"))){d.put("voided",true);d.put("voidReason",reason);d.put("voidAt",now());d.put("voidBy",a.id());found=true;}
         if(!found)throw new ApiException(404,"扣分记录不存在");ClassroomService.scoreChanged(r);runs.save(r,a,"纠正扣分："+reason);return runs.detail(id,a);
@@ -88,7 +89,7 @@ public class TeachingService {
         };
         switch(action) {
             case "close" -> {
-                if(!Boolean.TRUE.equals(r.get("archived")))throw new ApiException(409,"该组尚未提交本课次操作记录");
+                if(!TrialRecords.complete(r))throw new ApiException(409,"请等待该组完成本课次全部子实验后确认扣分");
                 r.put("classOpen",false);r.put("confirmationRequired",true);r.put("scorePublishedAt",now());
             }
             case "open" -> {r.put("classOpen",true);ClassroomService.scoreChanged(r);}

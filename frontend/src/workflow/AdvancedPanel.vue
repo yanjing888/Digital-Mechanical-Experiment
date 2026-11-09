@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { call } from './api.js'
 import ToastNotice from './ToastNotice.vue'
 const props = defineProps({ run: Object, runs: Array, teacher: Boolean, tab: String, teacherMode: String, sid: String })
@@ -21,6 +21,12 @@ watch(() => props.run.id, async id => {
     const result = await call(`/runs/${id}/retake-students`)
     if (props.run.id !== id) return
     students.value = result; selectedClass.value = result[0]?.cls || ''
+    if (props.run.retakeRequest?.status === 'pending') {
+      retake.reason = props.run.retakeRequest.reason || ''
+      // The class watcher clears the selection, so fill the requested member after it runs.
+      await nextTick()
+      retake.members = result.filter(s => s.sid === props.run.retakeRequest.by).map(s => s.sid)
+    }
   } catch (e) { if (props.run.id === id) rosterError.value = e.message }
   finally { if (props.run.id === id) loadingStudents.value = false }
 }, { immediate: true })
@@ -41,7 +47,9 @@ function clearToast() { if (error.value) error.value = ''; else if (rosterError.
   <section class="wf-panel advanced-panel">
     <ToastNotice :message="error || rosterError || notice" :type="error || rosterError ? 'error' : 'success'" @close="clearToast" />
     <template v-if="teacher && teacherMode === 'retake'">
-      <p v-if="run.retakeRequest">{{ run.retakeRequest.status === 'pending' ? '待处理' : '已安排' }} · {{ run.retakeRequest.reason }}</p>
+      <p v-if="run.retakeRequest?.status === 'pending'">重做申请：{{ run.retakeRequest.reason }}</p>
+      <p v-else-if="run.retakeRequest?.status === 'rejected'">未安排重做：{{ run.retakeRequest.reason }}</p>
+      <p v-else-if="run.retakeRequest?.status === 'arranged'">已建立新的重做记录。</p>
       <h3>安排学生重做</h3>
       <fieldset :disabled="busy || loadingStudents">
         <label>临时组名称<input v-model="retake.name"></label>
@@ -53,7 +61,7 @@ function clearToast() { if (error.value) error.value = ''; else if (rosterError.
         <div class="wf-checks retake-students"><label v-for="m in filteredStudents" :key="m.sid"><input v-model="retake.members" type="checkbox" :value="m.sid"> {{ m.name }}（{{ m.sid }}）</label></div>
         <p v-if="eligible.length && !filteredStudents.length">没有匹配的学生</p>
         <label>重做安排依据<textarea v-model="retake.reason" rows="2"></textarea></label>
-        <button class="btn btn-primary" :disabled="!retake.members.length || !retake.name.trim() || !retake.reason.trim()" @click="send('retake', retake, true)">建立新的实验记录</button>
+        <div class="wf-actions"><button class="btn btn-primary" :disabled="!retake.members.length || !retake.name.trim() || !retake.reason.trim()" @click="send('retake', retake, true)">建立新的实验记录</button><button v-if="run.retakeRequest?.status === 'pending'" type="button" class="btn btn-ghost" :disabled="!retake.reason.trim()" @click="send('retake-request/reject', { reason: retake.reason })">不安排重做</button></div>
       </fieldset>
     </template>
     <template v-else-if="teacher && teacherMode === 'assist'">

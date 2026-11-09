@@ -14,6 +14,7 @@ public class ReviewService {
     private final RunService runs;private final TeachingService teaching;private final DifyService dify;private final FractureService fracture;
     public ReviewService(RunService runs,TeachingService teaching,DifyService dify,FractureService fracture){this.runs=runs;this.teaching=teaching;this.dify=dify;this.fracture=fracture;}
     boolean retakeAllowed(Map<String,Object> r) {
+        if("pending".equals(map(r.get("retakeRequest")).get("status")))return true;
         if(Boolean.TRUE.equals(r.get("classOpen")))return true;
         try {Map<String,Object> s=teaching.settings();Instant time=Instant.now();return !time.isBefore(Instant.parse(str(s.get("retakeStart"))))&&!time.isAfter(Instant.parse(str(s.get("retakeEnd"))));}catch(Exception e){return false;}
     }
@@ -21,13 +22,23 @@ public class ReviewService {
     public Object requestRetake(String id,Actor a,Map<String,Object> b) {
         if(a.teacher())throw new ApiException(403,"请由学生本人申请重做");
         Map<String,Object> r=runs.load(id,a,true);
-        if(!Boolean.TRUE.equals(r.get("archived")))throw new ApiException(409,"请先提交本课次操作记录");
+        if(!TrialRecords.complete(r))throw new ApiException(409,"请先完成本课次全部子实验");
         if(Boolean.TRUE.equals(r.get("classOpen")))throw new ApiException(409,"教师尚未发布操作成绩");
         if(ClassroomService.confirmed(r,a.id()))throw new ApiException(409,"成绩已确认，不能再申请重做");
         Map<String,Object> existing=map(r.get("retakeRequest"));
         if("pending".equals(existing.get("status")))throw new ApiException(409,"重做申请已提交，请等待教师处理");
+        if("arranged".equals(existing.get("status")))throw new ApiException(409,"教师已安排重做，请进入新的实验记录");
         r.put("retakeRequest",Map.of("by",a.id(),"reason",required(b.get("reason"),"重做原因"),"at",now(),"status","pending"));
         runs.save(r,a,"申请重新实验");return runs.detail(id,a);
+    }
+    @Transactional
+    public Object rejectRetake(String id,Actor a,Map<String,Object> b) {
+        teacher(a);Map<String,Object> r=runs.load(id,a,true);runs.checkRevision(r,b);
+        Map<String,Object> request=map(r.get("retakeRequest"));
+        if(!"pending".equals(request.get("status")))throw new ApiException(409,"该重做申请已处理，请刷新记录");
+        String reason=required(b.get("reason"),"不安排重做的原因");
+        r.put("retakeRequest",Map.of("status","rejected","reason",reason,"by",a.id(),"at",now()));
+        runs.save(r,a,"不安排重做："+reason);return runs.detail(id,a);
     }
     public List<Map<String,Object>> retakeStudents(String id,Actor a) {
         teacher(a);runs.load(id,a,false);

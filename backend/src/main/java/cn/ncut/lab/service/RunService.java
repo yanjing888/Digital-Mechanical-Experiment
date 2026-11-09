@@ -82,7 +82,10 @@ public class RunService {
         int updated=db.update("UPDATE experiment_runs SET payload=?,revision=revision+1 WHERE id=? AND revision=?",JsonUtil.write(TrialRecords.stored(run)),run.get("id"),revision);
         if(updated!=1) throw new ApiException(409,"记录已更新，请刷新后重试"); run.put("revision",revision+1);
     }
-    void mutable(Map<String,Object> run) { if(Boolean.TRUE.equals(run.get("archived"))) throw new ApiException(409,"操作记录已提交；请由教师退回后修改"); }
+    void mutable(Map<String,Object> run) {
+        if(Boolean.TRUE.equals(run.get("archived"))) throw new ApiException(409,"操作记录已提交；请由教师退回后修改");
+        if(!Boolean.TRUE.equals(run.get("classOpen"))) throw new ApiException(409,"教师已确认扣分；如需修改实验数据，请先联系教师重新开放记录");
+    }
     void checkRevision(Map<String,Object> run,Map<String,Object> body) {
         if(!str(run.get("revision")).equals(str(body.get("revision")))) throw new ApiException(409,"记录已更新，请刷新后重试，未保存的输入仍保留");
     }
@@ -444,14 +447,21 @@ public class RunService {
     }
     @Transactional
     public Map<String,Object> archive(String id,Actor a,Map<String,Object> b) {
-        Map<String,Object> r=load(id,a,true);checkRevision(r,b);mutable(r);
+        if(a.teacher())throw new ApiException(403,"请由学生本人接受成绩并提交记录");
+        Map<String,Object> r=load(id,a,true);checkRevision(r,b);
+        if(Boolean.TRUE.equals(r.get("archived")))throw new ApiException(409,"操作记录已提交");
+        if(Boolean.TRUE.equals(r.get("classOpen")))throw new ApiException(409,"请等待教师确认扣分后再提交操作记录");
+        if(!str(ClassroomService.version(r)).equals(str(b.get("scoreVersion"))))throw new ApiException(409,"操作成绩已更新，请重新核对后提交");
+        String retakeStatus=str(map(r.get("retakeRequest")).get("status"));
+        if(Set.of("pending","arranged").contains(retakeStatus))throw new ApiException(409,"已申请或安排重做，请先处理重做申请");
         if(str(r.get("experimentAt")).isBlank()) r.put("experimentAt",now());
         if (TrialRecords.combined(r)) TrialRecords.requireComplete(r);
         else {
             if(list(r.get("photos")).isEmpty())throw new ApiException(400,"请先采集断口照片");
             if(map(r.get("data")).isEmpty())throw new ApiException(400,"断口已保存；请补齐本次原设备数据后归档");
         }
-        r.put("archived",true);r.put("archivedAt",now());r.put("status","archived");save(r,a,"提交实验操作记录");
+        ClassroomService.recordConfirmation(r,a.id(),"confirmed","");
+        r.put("archived",true);r.put("archivedAt",now());r.put("status","archived");save(r,a,"接受操作成绩并提交实验操作记录");
         db.update("INSERT INTO run_archives(id,run_id,payload,created_at) VALUES(?,?,?,?)",id(),id,JsonUtil.write(TrialRecords.stored(r)),now());
         return detail(id,a);
     }

@@ -80,6 +80,7 @@ public class WorkflowController {
     @PostMapping("/runs/{id}/submit") public Object submit(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return teaching.submit(id,actor(q),b);}
     @PostMapping("/runs/{id}/reports/{rid}/review") public Object review(HttpServletRequest q,@PathVariable String id,@PathVariable String rid,@RequestBody Map<String,Object> b) {return teaching.review(id,rid,actor(q),b);}
     @PostMapping("/runs/{id}/retake-request") public Object retakeRequest(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return review.requestRetake(id,actor(q),b);}
+    @PostMapping("/runs/{id}/retake-request/reject") public Object rejectRetake(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return review.rejectRetake(id,actor(q),b);}
     @GetMapping("/runs/{id}/retake-students") public Object retakeStudents(HttpServletRequest q,@PathVariable String id) {return review.retakeStudents(id,actor(q));}
     @PostMapping("/runs/{id}/retake") public Object retake(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return review.createRetake(id,actor(q),b);}
     @PostMapping("/runs/{id}/adopt") public Object adopt(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {return review.adopt(id,actor(q),b);}

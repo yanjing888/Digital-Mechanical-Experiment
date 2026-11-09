@@ -115,16 +115,16 @@ const classroomRuns = computed(() => {
 })
 const classroomCounts = computed(() => ({
   submitted: classroomRuns.value.filter(item => item.archived).length,
-  grading: classroomRuns.value.filter(item => item.archived && item.classOpen).length,
-  published: classroomRuns.value.filter(item => item.archived && !item.classOpen).length,
-  collecting: classroomRuns.value.filter(item => !item.archived).length,
+  grading: classroomRuns.value.filter(item => item.collectionComplete && item.classOpen).length,
+  published: classroomRuns.value.filter(item => item.collectionComplete && !item.classOpen && !item.archived).length,
+  collecting: classroomRuns.value.filter(item => !item.collectionComplete).length,
 }))
 function classroomState(item) {
   if (item.retakeRequest?.status === 'pending') return { text: '申请重做', kind: 'warn' }
   if (!item.collectionComplete) return { text: '实验进行中', kind: '' }
-  if (!item.archived) return { text: '待提交记录', kind: 'warn' }
   if (item.classOpen) return { text: '待确认扣分', kind: 'attention' }
-  return { text: '成绩已发布', kind: 'ok' }
+  if (!item.archived) return { text: '待学生选择', kind: '' }
+  return { text: '记录已提交', kind: '' }
 }
 const collectionSteps = [{ id: 'data', title: '数据采集' }, { id: 'capture', title: '试件与断口' }]
 const labSteps = computed(() => run.value?.trialItems
@@ -135,7 +135,7 @@ const isReportPage = computed(() => !props.teacher && props.page === 's-report')
 const studentPageTitle = computed(() => {
   if (props.teacher) return '课堂记录与评阅'
   if (isReportPage.value) return '实验报告'
-  if (isLabPage.value) return '现场实验'
+  if (isLabPage.value) return tab.value === 'operation' ? '操作记录' : '现场实验'
   return '实验采集'
 })
 function labStepDone(id) {
@@ -259,6 +259,11 @@ async function bootWorkflow() {
     if (runs.value.length) {
       const id = runs.value.find(r => r.id === sessionStorage.getItem(selectionKey))?.id || runs.value.find(r => !props.teacher && r.taskId === props.taskId)?.id || runs.value[0].id
       await select(id)
+      if (isLabPage.value) {
+        const step = suggestLabStep()
+        if (run.value.trialItems && activeTrial.value !== run.value.trialId) await select(id)
+        tab.value = step
+      }
     }
   } catch (e) {
     if (!disposed) error.value = e.message || '加载失败'
@@ -420,8 +425,10 @@ watch(tab, async value => {
   if (labStepDone('data') && labStepDone('capture') && !run.value.fractureSummary && !run.value.archived) await action(runFractureAnalysis)
 })
 async function submitOperationRecord() {
+  const viewedVersion = run.value.scoreVersion
   run.value = await call(`/runs/${run.value.id}`)
-  run.value = await call(`/runs/${run.value.id}/archive`, 'POST', { revision: run.value.revision })
+  if (viewedVersion !== run.value.scoreVersion || run.value.classOpen) throw new Error('教师调整了扣分，请重新核对后再提交。')
+  run.value = await call(`/runs/${run.value.id}/archive`, 'POST', { revision: run.value.revision, scoreVersion: viewedVersion })
   await listRuns()
 }
 onMounted(() => {
@@ -436,6 +443,10 @@ onMounted(() => {
       ])
       if (disposed || busy.value || run.value?.id !== id) return
       if (summaries) runs.value = summaries
+      if (!props.teacher && fresh.retakeRequest?.childId && fresh.retakeRequest.childId !== run.value.retakeRequest?.childId) {
+        await listRuns()
+        if (disposed || busy.value || run.value?.id !== id) return
+      }
       if (props.teacher) run.value.revision = fresh.revision
       // Only refresh classroom facts; do not overwrite in-progress student input or its revision.
       for (const key of ['deductions', 'operationScore', 'calculatedScore', 'classOpen', 'finalScore', 'finalComment', 'archived', 'archivedAt', 'scorePublishedAt', 'scoreVersion', 'myScoreConfirmed', 'myConfirmation', 'retakeRequest']) run.value[key] = fresh[key]
@@ -483,11 +494,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <div class="wf-teacher-bar__main">
             <h2>{{ run.expName }} · {{ tab === 'report' ? (run.timeText || stamp(run.createdAt)) : `${run.groupName} · 第 ${run.attempt} 次` }}</h2>
             <p v-if="tab !== 'report'" class="wf-teacher-members">{{ run.members.map(m => `${m.name}${m.cls ? '（' + m.cls + '）' : ''}`).join('、') }}</p>
-            <div v-if="tab !== 'report'" class="wf-teacher-tags">
-              <span class="tag" :class="{ ok: run.classOpen }">{{ run.classOpen ? '课堂进行中' : '课堂已结束' }}</span>
-              <span class="tag tag-accent">操作分 {{ run.operationScore ?? run.calculatedScore }} / 100</span>
-              <span class="tag" :class="{ ok: run.archived }">{{ run.archived ? '操作记录已提交' : '操作记录未提交' }}</span>
-            </div>
+            <p v-if="tab !== 'report'" class="wf-teacher-members">操作分 {{ run.operationScore ?? run.calculatedScore }} 分 · {{ run.classOpen ? '扣分待确认' : '扣分已确认' }} · {{ run.archived ? '记录已提交' : '记录未提交' }}</p>
           </div>
           <label v-if="tab === 'report'" class="wf-run-picker wf-teacher-bar__pick"><span>选择课次</span><select :value="run.taskId" :disabled="busy" aria-label="选择课次" @change="action(() => select(teacherTasks.find(t => t.taskId === $event.target.value).id))"><option v-for="t in teacherTasks" :key="t.taskId" :value="t.taskId">{{ t.timeText || stamp(t.createdAt) }} · {{ t.expName }}</option></select></label><label v-else-if="runs.length > 1" class="wf-run-picker wf-teacher-bar__pick"><span>选择实验小组（{{ runs.length }} 条记录）</span><select class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验小组" @change="onPickRun"><optgroup v-for="group in teacherRunGroups" :key="group.name" :label="group.name"><option v-for="item in group.items" :key="item.id" :value="item.id">{{ item.groupName }} · 第 {{ item.attempt }} 次</option></optgroup></select></label>
 
@@ -499,25 +506,25 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
             <span class="wf-teacher-meta">第 {{ run.attempt }} 次 · {{ run.members.map(m => `${m.name}${m.cls ? '（' + m.cls + '）' : ''}`).join('、') }}</span>
           </div>
         </div>
-        <section v-if="isLabPage && run.trialItems" class="wf-lesson-progress" aria-label="本课次实验进度">
+        <section v-if="isLabPage && run.trialItems && tab !== 'operation'" class="wf-lesson-progress" aria-label="本课次实验进度">
           <div class="wf-lesson-progress__main">
             <div><strong>本课次实验进度</strong><span>{{ completedTrialCount }} / {{ run.trialItems.length }} 项完成</span></div>
             <div class="wf-lesson-progress__track" role="progressbar" :aria-valuenow="completedTrialCount" aria-valuemin="0" :aria-valuemax="run.trialItems.length"><i :style="{ width: `${completedTrialCount / run.trialItems.length * 100}%` }"></i></div>
           </div>
           <div class="wf-lesson-progress__result">
             <template v-if="run.archived"><span class="wf-lesson-score">操作成绩 {{ run.operationScore }} 分</span><button type="button" class="btn btn-ghost" @click="goLabStep('operation')">查看最终记录</button></template>
-            <button v-else-if="allTrialsComplete" type="button" class="btn btn-primary" @click="goLabStep('operation')">查看并提交最终记录</button>
+            <button v-else-if="allTrialsComplete" type="button" class="btn btn-primary" @click="goLabStep('operation')">查看操作记录</button>
             <span v-else>还需完成 {{ missingTrials.length }} 项子实验</span>
           </div>
         </section>
-        <nav v-if="run.trialItems && isLabPage" class="wf-trial-nav" aria-label="试验子项">
+        <nav v-if="run.trialItems && isLabPage && tab !== 'operation'" class="wf-trial-nav" aria-label="试验子项">
           <button v-for="item in run.trialItems" :key="item.id" type="button" :class="{ active: run.trialId === item.id }" :disabled="busy" @click="action(() => pickTrial(item.id))"><strong>{{ item.name }}</strong><small>{{ item.dataReady && item.photoReady ? '采集完成' : item.dataReady || item.photoReady ? '采集中' : '待采集' }}</small></button>
         </nav>
-        <nav v-if="isLabPage" class="wf-stepper" aria-label="现场实验步骤">
+        <nav v-if="isLabPage && tab !== 'operation'" class="wf-stepper" aria-label="现场实验步骤">
           <button v-for="(s, i) in labSteps" :key="s.id" type="button" class="wf-step" :class="{ active: tab === s.id, done: labStepDone(s.id) }" @click="goLabStep(s.id)"><span class="wf-step-num">{{ i + 1 }}</span><span class="wf-step-title">{{ s.title }}</span></button>
         </nav>
         <section v-if="isLabPage && tab === 'data'" class="wf-panel wf-panel--student">
-          <div class="wf-group-reports-head wf-data-head"><h3>{{ run.trialName ? `${run.trialName} · 数据采集` : '数据采集' }}</h3><div class="wf-actions"><span v-if="run.data" class="tag">已采集</span><button v-if="!run.archived" type="button" class="btn btn-primary" :disabled="busy" @click="action(syncWanceData)">{{ busy ? '正在采集…' : '自动采集' }}</button></div></div>
+          <div class="wf-group-reports-head wf-data-head"><h3>{{ run.trialName ? `${run.trialName} · 数据采集` : '数据采集' }}</h3><div class="wf-actions"><span v-if="run.data" class="tag">已采集</span><button v-if="!run.archived && run.classOpen" type="button" class="btn btn-primary" :disabled="busy" @click="action(syncWanceData)">{{ busy ? '正在采集…' : '自动采集' }}</button></div></div>
           <p v-if="busy && !run.data" class="wf-empty wf-empty--inline">正在读取试验数据…</p>
           <div v-else-if="run.data" class="wf-data wf-data--linked">
             <div class="wf-metrics wf-metrics--compact"><div><small>最大力</small><strong>{{ run.data.maxF.toFixed(3) }} kN</strong></div><div><small>最大位移</small><strong>{{ run.data.maxD.toFixed(3) }} mm</strong></div><div><small>数据点</small><strong>{{ run.data.pointCount }}</strong></div></div>
@@ -529,16 +536,16 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
         </section>
         <section v-if="isLabPage && tab === 'capture'" class="wf-panel wf-panel--student">
           <h3>{{ run.trialName ? `${run.trialName} · 试件照片` : '断口照片' }}</h3>
-          <div class="wf-actions"><label>角度 <select v-model="angle"><option>正面</option><option>侧面</option><option>斜面</option><option>补充</option></select></label><button type="button" class="btn btn-primary" @click="action(startCamera)">打开摄像头</button><label class="btn btn-ghost">上传照片<input type="file" hidden accept="image/jpeg,image/png" @change="onPhotoPick"></label></div>
+          <div v-if="!run.archived && run.classOpen" class="wf-actions"><label>角度 <select v-model="angle"><option>正面</option><option>侧面</option><option>斜面</option><option>补充</option></select></label><button type="button" class="btn btn-primary" @click="action(startCamera)">打开摄像头</button><label class="btn btn-ghost">上传照片<input type="file" hidden accept="image/jpeg,image/png" @change="onPhotoPick"></label></div>
           <div class="wf-capture-layout"><div class="wf-capture-media"><div v-if="camera" class="camera"><video ref="video" autoplay playsinline muted></video><div class="wf-actions"><button type="button" class="btn btn-primary" :disabled="busy" @click="action(snap, '照片已保存')">拍摄并保存</button><button type="button" class="btn btn-ghost" @click="stopCamera">关闭摄像头</button></div></div>
-          <div v-if="!camera" class="photo-grid photo-grid--large"><figure v-for="p in run.photos" :key="p.id"><img :src="images[p.id]" :alt="`${p.angle}断口照片`"><figcaption>{{ p.angle }} · {{ p.width }} × {{ p.height }}<small>{{ p.warning }}</small></figcaption><div class="wf-actions"><button @click="action(() => downloadFile(p.id, p.name))">下载原图</button><button v-if="!run.archived" :disabled="busy" @click="action(async () => { run = await call(`/runs/${run.id}/photos/${p.id}`, 'DELETE') }, '已移除，原文件仍保留')">不采用此图</button></div></figure></div>          <p v-if="!run.photos.length" class="wf-empty wf-empty--inline">请至少保存一张断口照片</p>
+          <div v-if="!camera" class="photo-grid photo-grid--large"><figure v-for="p in run.photos" :key="p.id"><img :src="images[p.id]" :alt="`${p.angle}断口照片`"><figcaption>{{ p.angle }} · {{ p.width }} × {{ p.height }}<small>{{ p.warning }}</small></figcaption><div class="wf-actions"><button @click="action(() => downloadFile(p.id, p.name))">下载原图</button><button v-if="!run.archived && run.classOpen" :disabled="busy" @click="action(async () => { run = await call(`/runs/${run.id}/photos/${p.id}`, 'DELETE') }, '已移除，原文件仍保留')">不采用此图</button></div></figure></div>          <p v-if="!run.photos.length" class="wf-empty wf-empty--inline">请至少保存一张断口照片</p>
           <p v-if="busy && run.photos.length && !run.fractureSummary" class="wf-empty wf-empty--inline">正在分析断口形貌…</p>
           </div><aside class="wf-capture-result"><div v-if="run.fractureSummary" class="wf-fracture-summary">
             <h3>断口分析结论</h3>
             <p class="wf-fracture-summary__verdict">{{ run.fractureSummary.label }}</p>
 
             <ul v-if="run.fractureSummary.evidence?.length" class="wf-fracture-evidence"><li v-for="(line, i) in run.fractureSummary.evidence" :key="i">{{ line }}</li></ul>
-            <button v-if="!run.archived" type="button" class="btn btn-ghost" :disabled="busy" @click="action(runFractureAnalysis, '已更新')">重新分析</button>
+            <button v-if="!run.archived && run.classOpen" type="button" class="btn btn-ghost" :disabled="busy" @click="action(runFractureAnalysis, '已更新')">重新分析</button>
           </div>
           <p v-else class="wf-empty">待采集照片</p></aside></div>
           <div v-if="isLabPage" class="wf-step-nav"><button type="button" class="btn btn-ghost" @click="prevLabStep">上一步</button><button type="button" class="btn btn-primary" :disabled="!labStepDone('capture')" @click="nextLabStep">下一步：{{ nextLabStepTitle }}</button></div>
@@ -547,11 +554,11 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <section class="wf-classroom-overview" aria-label="本课次小组进度">
             <header>
               <h3>本课次小组</h3>
-              <div class="wf-classroom-counts"><span>实验中 {{ classroomCounts.collecting }}</span><span>操作记录已交 {{ classroomCounts.submitted }}</span><span>待确认扣分 {{ classroomCounts.grading }}</span><span>成绩已发布 {{ classroomCounts.published }}</span></div>
+              <div class="wf-classroom-counts"><span>实验中 {{ classroomCounts.collecting }}</span><span>待确认扣分 {{ classroomCounts.grading }}</span><span>待学生选择 {{ classroomCounts.published }}</span><span>记录已提交 {{ classroomCounts.submitted }}</span></div>
             </header>
             <div class="wf-classroom-groups">
               <button v-for="item in classroomRuns" :key="item.id" type="button" class="wf-classroom-group" :class="{ active: item.id === run.id }" :disabled="busy" @click="action(() => select(item.id))">
-                <span class="wf-classroom-group__head"><strong>{{ item.groupName }}</strong><em :class="classroomState(item).kind">{{ classroomState(item).text }}</em></span>
+                <span class="wf-classroom-group__head"><strong>{{ item.groupName }}</strong><span>{{ classroomState(item).text }}</span></span>
                 <span>{{ item.members.map(m => m.name).join('、') }}</span>
                 <span class="wf-classroom-group__meta"><small>子实验 {{ item.completedTrials || 0 }}/{{ item.trialTotal || 1 }}</small><small v-if="item.archived">操作分 {{ item.operationScore }}</small></span>
               </button>
@@ -560,28 +567,26 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <div v-if="run.retakeRequest?.status === 'pending'" class="wf-retake-alert"><div><strong>学生申请重做</strong><span>{{ run.retakeRequest.reason }}</span></div><button type="button" class="btn btn-ghost" @click="tab = 'retake'">处理重做</button></div>
           <div class="wf-classroom-bar">
             <div class="wf-actions wf-classroom-bar__actions">
-              <button type="button" :class="['btn', run.classOpen ? 'btn-primary' : 'btn-ghost']" :disabled="busy || !run.archived" @click="action(() => control(run.classOpen ? 'close' : 'open'), run.classOpen ? '最终操作成绩已发布' : '已重新开放扣分调整')">{{ run.classOpen ? '确认扣分并发布成绩' : '重新调整扣分' }}</button>
+              <button type="button" :class="['btn', run.classOpen ? 'btn-primary' : 'btn-ghost']" :disabled="busy || (run.classOpen && !allTrialsComplete)" @click="action(() => control(run.classOpen ? 'close' : 'open'), run.classOpen ? '扣分已确认，学生可查看并选择提交或重做' : '已重新开放扣分调整')">{{ run.classOpen ? '确认本次扣分' : '重新调整扣分' }}</button>
               <button v-if="run.archived && run.classOpen" type="button" class="btn btn-ghost" :disabled="busy" @click="action(() => control('return'), '已退回，学生可补采或修正后重新提交')">退回学生修改</button>
             </div>
           </div>
-          <ScoreConfirmation v-if="run.archived" :run="run" teacher :busy="busy" />
           <div class="wf-deduct-layout">
             <div class="wf-deduct-form">
-              <fieldset :disabled="busy"><p v-if="run.archived && !run.classOpen" class="wf-message error">操作成绩已发布，如需修改请先重新开放评分。</p><div v-if="!settings.catalogConfirmed" class="wf-message error wf-deduction-setup"><div><strong>请先确认扣分项和分值</strong></div><button type="button" class="btn btn-ghost" @click="showSettings = true">去配置</button></div><div v-if="settings.catalogConfirmed" class="wf-deduction-heading"><div><h3>记录本次扣分</h3></div><button type="button" class="wf-text-button" @click="showSettings = true">编辑扣分项</button></div><div class="wf-checks"><label v-for="item in settings.catalog" :key="item.id"><input v-model="deduction.items" type="checkbox" :value="item.id" :disabled="!run.classOpen"> {{ item.label }}（{{ item.points }}分）</label></div><label>扣分依据<textarea v-model="deduction.reason" rows="3" placeholder="例如：第 2 组在设备运行中尝试打开保护罩，已现场提醒。"></textarea></label><label>撤销扣分时的说明<textarea v-model="controlReason" rows="2" placeholder="仅撤销明细时使用"></textarea></label><button class="btn btn-primary" :disabled="!run.classOpen || !settings.catalogConfirmed" @click="action(async () => { run = await call(`/runs/${run.id}/deductions`, 'POST', { ...deduction, revision: run.revision }); deduction.items = []; deduction.reason = ''; await listRuns() }, '保存本次扣分')">保存本次扣分</button></fieldset>
+              <fieldset :disabled="busy"><p v-if="!run.classOpen" class="wf-message error">操作成绩已发布，如需修改请先重新开放评分。</p><div v-if="!settings.catalogConfirmed" class="wf-message error wf-deduction-setup"><div><strong>请先确认扣分项和分值</strong></div><button type="button" class="btn btn-ghost" @click="showSettings = true">去配置</button></div><div v-if="settings.catalogConfirmed" class="wf-deduction-heading"><div><h3>记录本次扣分</h3></div><button type="button" class="wf-text-button" @click="showSettings = true">编辑扣分项</button></div><div class="wf-checks"><label v-for="item in settings.catalog" :key="item.id"><input v-model="deduction.items" type="checkbox" :value="item.id" :disabled="!run.classOpen"> {{ item.label }}（{{ item.points }}分）</label></div><label>扣分依据<textarea v-model="deduction.reason" rows="3" placeholder="例如：第 2 组在设备运行中尝试打开保护罩，已现场提醒。"></textarea></label><label>撤销扣分时的说明<textarea v-model="controlReason" rows="2" placeholder="仅撤销明细时使用"></textarea></label><button class="btn btn-primary" :disabled="!run.classOpen || !settings.catalogConfirmed" @click="action(async () => { run = await call(`/runs/${run.id}/deductions`, 'POST', { ...deduction, revision: run.revision }); deduction.items = []; deduction.reason = ''; await listRuns() }, '保存本次扣分')">保存本次扣分</button></fieldset>
             </div>
             <section class="wf-deduction-records" aria-label="本次课堂扣分记录"><h3>已记录扣分</h3><p v-if="!run.deductions.length" class="wf-empty wf-empty--inline">暂无扣分记录</p><div v-else class="wf-table-wrap wf-table-wrap--tall"><table><thead><tr><th>项目</th><th>分值</th><th>依据</th><th></th></tr></thead><tbody><tr v-for="d in run.deductions" :key="d.id" :class="{ voided: d.voided }"><td>{{ d.label }}<small>{{ stamp(d.at) }}</small></td><td>{{ d.voided ? '已撤销' : `-${d.points}` }}</td><td>{{ d.reason || '—' }}</td><td><button v-if="!d.voided" type="button" class="btn btn-ghost" :disabled="busy" @click="action(async () => { run = await call(`/runs/${run.id}/deductions/${d.id}/void`, 'POST', { revision: run.revision, reason: controlReason }) }, '已撤销')">撤销</button></td></tr></tbody></table></div></section>
           </div>
         </section>
         <section v-if="teacher && tab === 'record'" class="wf-panel wf-panel--teacher-op wf-panel--op-doc">
-          <p v-if="!run.archived" class="wf-empty wf-empty--inline">该组尚未提交操作记录。</p>
+          <p v-if="!allTrialsComplete" class="wf-empty wf-empty--inline">该组尚未完成全部子实验。</p>
           <OperationRecordDoc v-else :run="run" :points="points" :images="images" :deductions="activeDeductions" :read-only="true" />
         </section>
         <section v-if="isLabPage && tab === 'operation'" class="wf-panel wf-panel--student wf-panel--op-doc-wrap">
-          <OperationRecordDoc :run="run" :points="points" :images="images" :deductions="activeDeductions" :read-only="!!run.archived" />
-          <ScoreConfirmation :run="run" :busy="busy" @confirm="values => action(() => confirmScore(values), '成绩已确认')" @retake="reason => action(() => requestRetake(reason), '重做申请已提交')" />
-          <div v-if="!run.archived" class="wf-op-doc__actions"><div v-if="missingTrials.length" class="wf-actions"><button v-for="t in missingTrials" :key="t.id" class="btn btn-ghost" @click="action(() => pickTrial(t.id))">{{ t.name }}：{{ !t.dataReady ? '缺少数据' : '缺少照片' }}</button></div><button class="btn btn-primary" :disabled="busy || !allTrialsComplete" @click="action(submitOperationRecord)">提交本课次操作记录</button></div>
-          <p v-else>操作记录已提交 · {{ stamp(run.archivedAt) }}</p>
-          <div class="wf-step-nav"><button type="button" class="btn btn-ghost" @click="prevLabStep">上一步</button><button v-if="run.archived" type="button" class="btn btn-primary" @click="goStudentNav('s-report')">前往实验报告</button></div>
+          <ScoreConfirmation :run="run" :busy="busy" @submit="action(submitOperationRecord, '操作记录已提交')" @confirm="values => action(() => confirmScore(values), '成绩已确认')" @retake="reason => action(() => requestRetake(reason), '重做申请已提交')" />
+          <OperationRecordDoc :run="run" :points="points" :images="images" :deductions="activeDeductions" :show-evaluation="false" :read-only="!!run.archived" />
+          <div v-if="missingTrials.length" class="wf-actions"><button v-for="t in missingTrials" :key="t.id" class="btn btn-ghost" @click="action(() => pickTrial(t.id))">补齐{{ t.name }}{{ !t.dataReady ? '数据' : '照片' }}</button></div>
+          <div v-if="run.classOpen || run.archived" class="wf-step-nav"><button v-if="run.classOpen && !run.archived" type="button" class="btn btn-ghost" @click="goLabStep('data')">返回实验采集</button><button v-if="run.archived" type="button" class="btn btn-primary" @click="goStudentNav('s-report')">前往实验报告</button></div>
         </section>
         <ReportDesk v-if="teacher && tab === 'report'" :task-id="run.taskId" />
         <ScoreConfirmation v-if="isReportPage && run.archived && !run.myScoreConfirmed" :run="run" :busy="busy" @confirm="values => action(() => confirmScore(values), '成绩已确认')" @retake="reason => action(() => requestRetake(reason), '重做申请已提交')" />
@@ -600,6 +605,10 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
 .report-list-tools{display:flex;align-items:end;gap:16px;flex-wrap:wrap;padding:16px;background:#f5f8f9;border-radius:8px}.report-list-tools label{display:grid;gap:7px;font-size:12px;color:#647980}.report-list-tools input{width:260px}.report-list-tools>span{margin-left:auto;font-size:13px;color:#647980}.report-student-table{max-height:600px!important}.report-student-table table{min-width:850px}.report-student-table th{position:sticky;top:0}.report-row-actions{display:flex;gap:16px;white-space:nowrap}.report-status{font-size:12px;color:#9a631c;background:#fff6e8;border-radius:5px;padding:5px 8px;white-space:nowrap}.report-status.is-done{color:#087c88;background:#e8f4f5}.report-grading-layout{display:grid;grid-template-columns:210px minmax(320px,1fr) 320px;gap:18px;align-items:start}.report-student-rail{background:#f8fafb;border:1px solid #e1e9ed;border-radius:8px;padding:14px;min-width:0}.report-student-rail h4{margin:0 0 14px}.report-student-rail>input,.report-student-rail>select{width:100%;margin-bottom:10px;font-size:12px}.report-student-scroll{max-height:760px;overflow:auto}.report-student-item{display:grid;width:100%;text-align:left;gap:9px;background:#fff;border:1px solid #dce6e9;border-radius:7px;padding:14px;margin-bottom:10px;font:inherit;font-size:12px;color:#52666f;cursor:pointer}.report-student-item>span:first-child{display:flex;justify-content:space-between;gap:8px}.report-student-item strong{color:#223945;font-size:14px}.report-student-item.active{border-color:#087c88;background:#e8f4f5}.report-document-pane{min-width:0;border:1px solid #dce6e9;border-radius:8px;overflow:hidden}.report-document-head{padding:16px;background:#f8fafb}.report-document-head h3{font-size:16px;margin:0}.report-document-head p{font-size:12px;overflow-wrap:anywhere;margin:8px 0}.report-assessment-pane{min-width:0;max-height:900px;overflow:auto}.report-assessment-pane .report-review{margin:0}.report-assessment-pane .review-block{padding:16px;margin:12px 0}.report-assessment-pane .review-block header{flex-wrap:wrap;gap:8px}.report-assessment-pane .review-block h3{font-size:16px}.report-assessment-pane .review-flow{font-size:12px}.report-assessment-pane .review-switch{gap:16px}.report-assessment-pane .review-switch button{font-size:14px}.report-assessment-pane .review-comment{font-size:13px}@media(min-width:1600px){.report-grading-layout{grid-template-columns:240px minmax(400px,1fr) 360px}}@media(max-width:1150px){.report-grading-layout{grid-template-columns:180px minmax(0,1fr)}.report-assessment-pane{grid-column:2;max-height:none}.report-student-rail{grid-row:1/3}}@media(max-width:700px){.report-grading-layout{grid-template-columns:1fr}.report-student-rail{grid-row:auto}.report-student-scroll{max-height:220px}.report-assessment-pane{grid-column:auto}.report-list-tools>span{margin-left:0}}
 
 .workflow{color:#223945;max-width:none;width:100%;margin:0}.workflow--teacher{padding:0 clamp(12px,2vw,28px)}.workflow--student{max-width:none;width:100%;margin:0;padding:0 clamp(12px,2vw,28px)}.workflow-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;gap:16px}.workflow-heading--teacher{margin-bottom:16px}.workflow-heading--teacher h1{margin:0;font-size:26px}.wf-toolbar{display:flex;gap:8px;flex-shrink:0}.workflow h1{font-size:28px;margin:4px 0 8px}.workflow h2{font-size:23px;margin:0 0 10px}.workflow h3{font-size:18px;margin:0 0 14px}.workflow p{line-height:1.7}.workflow small,.wf-hint{color:#647980;line-height:1.7}.wf-hint{margin:0 0 18px;font-size:14px}.wf-mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all}.wf-form--single{grid-template-columns:1fr}.wf-fallback-import{margin-top:20px}.wf-data--linked{margin-top:16px}.wf-fracture-summary{margin-top:24px;padding:18px;background:#f1f8f8;border-radius:12px;border:1px solid #d7eef0}.wf-fracture-summary--inline{margin:16px 0;display:grid;gap:8px}.wf-fracture-evidence{margin:12px 0 0;padding-left:1.25em;color:#52666f;font-size:14px;line-height:1.75}.wf-fracture-evidence li{margin:6px 0}.wf-fracture-summary__verdict{font-size:22px;font-weight:700;color:#087c88;margin:0 0 8px}.wf-data--compact{margin-top:12px}.wf-data--compact h4{margin:0 0 10px;font-size:15px}.wf-data--compact svg{max-height:180px}.eyebrow{color:#087c88;font-weight:700;letter-spacing:2px}.workflow-layout{display:grid;grid-template-columns:265px minmax(0,1fr);gap:24px}.wf-panel--op-doc-wrap{background:transparent;border:0;padding:20px 0 26px;box-shadow:none}.wf-op-doc__actions{margin-top:24px;padding:20px 22px;background:#fff;border:1px solid #e1e9ed;border-radius:12px}.wf-op-doc__confirm{display:flex;align-items:flex-start;gap:10px;margin:12px 0 16px;font-size:14px;line-height:1.6;cursor:pointer}.wf-op-doc__confirm input{margin-top:4px}.wf-panel--op-doc{background:#f5f7f8;border:0;padding:24px}.workflow-heading--student h1{margin:0;font-size:26px}.workflow-layout--solo{grid-template-columns:1fr;max-width:none;margin:0;width:100%}.wf-main--student .wf-student-head{background:#fff;padding:20px 22px;border:1px solid #e1e9ed;border-radius:14px 14px 0 0;border-bottom:0;display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}.wf-main--student .wf-student-head h2{margin:0;font-size:20px}.wf-student-head-main{display:grid;gap:6px;min-width:0;flex:1}.wf-main--student .wf-panel--student{border-radius:0 0 14px 14px;border-top:0;margin-top:0}.wf-stepper{display:flex;background:#fff;border:1px solid #e1e9ed;border-top:0;padding:12px 16px;gap:8px}.wf-step{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 8px;border:1px solid #e1e9ed;border-radius:10px;background:#f8fafb;cursor:pointer;font:inherit;color:#52666f}.wf-step.active{border-color:#087c88;background:#e8f4f5;color:#087c88;font-weight:600}.wf-step.done .wf-step-num{background:#087c88;color:#fff}.wf-step-num{width:26px;height:26px;border-radius:50%;background:#dce6e9;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}.wf-step-title{font-size:13px}.wf-step-nav{display:flex;justify-content:flex-end;gap:12px;margin-top:24px;padding-top:20px;border-top:1px solid #e5edef}.wf-checklist{list-style:none;padding:0;margin:0 0 20px;display:grid;gap:10px}.wf-checklist li{padding:10px 14px;border-radius:8px;background:#f5f8f9;color:#70828a}.wf-checklist li.ok{background:#e9f6ee;color:#24623c}.wf-checklist li.ok::before{content:'✓ '}.wf-checklist--inline{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}.wf-panel--op-record{max-width:100%}.wf-op-record__head{margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid #e5edef;display:grid;gap:10px}.wf-op-record__meta{color:#647980;font-size:14px}.wf-op-record__block{margin:0 0 28px;padding:20px;border:1px solid #e8eef0;border-radius:12px;background:#fbfcfd}.wf-op-record__block h4{margin:0 0 14px;font-size:16px;color:#087c88}.wf-op-record__body{display:grid;gap:14px}.wf-op-record__note{margin:0;font-size:13px;color:#647980;line-height:1.65}.wf-op-record__facts{list-style:none;margin:0 0 16px;padding:0;display:grid;gap:10px}.wf-op-record__facts li{display:flex;justify-content:space-between;gap:16px;padding:10px 12px;background:#fff;border-radius:8px;border:1px solid #e8eef0;font-size:14px}.wf-op-record__facts span{color:#647980}.wf-op-record__archive{margin-top:8px;padding-top:20px;border-top:1px solid #e5edef}.photo-grid--record figure img{height:140px}.wf-deductions-fold{margin-top:16px}.wf-sidebar{display:flex;flex-direction:column;gap:10px}.run-card{text-align:left;border:1px solid #dce6e9;background:white;border-radius:12px;padding:16px;display:grid;gap:8px;cursor:pointer;color:inherit}.run-card.selected{border-color:#078592;box-shadow:0 0 0 2px #d7eef0;background:#f2fafb}.run-card span,.run-card small{font-size:12px}.run-card b{color:#087c88}.wf-main{min-width:0}.wf-main--teacher .wf-panel{margin-top:0}.wf-teacher-head{background:#fff;padding:20px 22px;border:1px solid #e1e9ed;border-radius:14px 14px 0 0;border-bottom:0;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:12px}.wf-teacher-head h2{margin:0;font-size:20px}.wf-teacher-head-main{display:grid;gap:6px;min-width:0;flex:1}.wf-run-select{font:inherit;font-size:16px;font-weight:600;border:1px solid #ccdadd;border-radius:8px;padding:10px 12px;max-width:100%;color:#223945;background:#fff}.wf-teacher-meta{font-size:14px;color:#52666f}.wf-teacher-tags{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.tag.ok{background:#e9f6ee;color:#24623c}.tag-accent{background:#e8f4f5;color:#087c88;font-weight:700}.wf-tabs--teacher{padding:0 4px 0;background:#fff;border:1px solid #e1e9ed;border-top:0;border-bottom:0}.wf-main--teacher .wf-panel{border-radius:0 0 14px 14px;border-top:0}.wf-op-layout{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:28px;align-items:start}.wf-panel--teacher-op{padding-top:22px}.wf-metrics--compact{margin:0 0 20px}.wf-form--compact{margin:12px 0}.wf-empty--page{margin-top:40px}.wf-empty--inline{padding:16px;margin:8px 0;text-align:left;background:#f5f8f9;border-radius:8px;color:#70828a}.wf-teacher-comment{margin-top:12px;padding:12px;background:#f5f8f9;border-radius:8px;font-size:14px}.wf-run-head{background:#fff;padding:24px;border:1px solid #e1e9ed;border-radius:14px;display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.wf-run-head small{word-break:break-all}.wf-tabs{display:flex;gap:4px;padding:16px 0;overflow:auto}.wf-tabs button{white-space:nowrap;background:transparent;border:0;padding:12px 20px;border-radius:8px;color:#52666f;font-weight:600;cursor:pointer}.wf-tabs button.active{background:#087c88;color:white}.wf-panel{background:#fff;border:1px solid #e1e9ed;padding:26px;border-radius:14px}.workflow fieldset{border:0;margin:0;padding:0;min-width:0}.workflow input,.workflow select,.workflow textarea{border:1px solid #ccdadd;background:#fff;border-radius:7px;padding:10px;color:#223945;font:inherit;max-width:100%}.workflow textarea{width:100%;resize:vertical}.workflow input:focus,.workflow select:focus,.workflow textarea:focus{outline:2px solid #90cdd2;outline-offset:1px}.wf-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:18px 0}.wf-form label{display:grid;gap:8px;font-size:13px}.wf-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:14px 0}.wf-actions label.btn input{max-width:180px;font-size:12px;border:0;padding:0 0 0 8px}.workflow hr{border:0;border-top:1px solid #e5edef;margin:28px 0}.photo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px}.photo-grid figure{margin:0;border:1px solid #e0e9ec;border-radius:12px;overflow:hidden;padding:12px}.photo-grid img{width:100%;height:180px;object-fit:contain;background:#f3f6f7;border-radius:6px}.photo-grid figcaption{font-size:13px;margin:8px 0}.photo-grid small{display:block}.photo-grid button{border:0;background:transparent;color:#087c88;cursor:pointer}.camera video{width:100%;max-height:450px;background:#172832;border-radius:12px}.wf-message{padding:12px 16px;border-radius:8px;white-space:pre-wrap}.wf-message.error{background:#fff0ee;color:#a33728}.wf-message.success{background:#e9f6ee;color:#24623c}.wf-empty{padding:30px;background:#f5f8f9;border-radius:10px;text-align:center;color:#70828a}.wf-table-wrap{overflow:auto;max-height:300px;margin:16px 0}.workflow table{width:100%;border-collapse:collapse;font-size:13px}.workflow th,.workflow td{border:1px solid #dce6e9;padding:10px;text-align:left;white-space:pre-wrap;word-break:break-word}.workflow th{background:#f0f6f7}.wf-data{margin-top:28px}.wf-data svg{width:100%;font-size:12px}.wf-metrics{display:flex;gap:18px;margin:20px 0;flex-wrap:wrap}.wf-metrics>div{display:grid;gap:8px;min-width:150px;padding:18px;background:#f1f8f8;border-radius:10px}.wf-metrics strong{font-size:25px;color:#087c88}.workflow button:disabled{opacity:.55;cursor:not-allowed}.workflow input[type=file]{max-width:100%}@media(max-width:900px){.workflow-layout{grid-template-columns:1fr}.wf-op-layout{grid-template-columns:1fr}.wf-sidebar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.wf-sidebar h3{grid-column:1/-1}.wf-run-head{flex-direction:column}.wf-teacher-head{flex-direction:column}}@media(max-width:520px){.wf-form{grid-template-columns:1fr}.wf-panel{padding:18px}.workflow-heading{align-items:flex-start;gap:12px}.workflow h1{font-size:23px}.wf-sidebar{grid-template-columns:1fr}.wf-tabs button{padding:10px 14px}}
+</style>
+<style scoped>
+.wf-classroom-bar .btn{background-image:none;box-shadow:none}
+.wf-classroom-bar .btn-primary{background:#245b65;border-color:#245b65;color:#fff}
 </style>
 <style>
 .wf-stepper--teacher{padding:12px 16px;flex-wrap:wrap;border:1px solid #e1e9ed;border-top:0;background:#fff}.wf-stepper--teacher .wf-step{flex:1 1 auto;min-width:88px;font-size:13px;padding:10px 12px}.wf-report-pick{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}.wf-report-chip{border:1px solid #dce6e9;background:#f8fafb;border-radius:999px;padding:8px 16px;cursor:pointer;font:inherit;color:#52666f}.wf-report-chip.active{background:#087c88;border-color:#087c88;color:#fff}.report-card--solo{margin:0}.wf-table-wrap--tall{max-height:none}.wf-checks{display:grid;gap:12px;margin:20px 0}.workflow td small{display:block;margin-top:6px}.workflow textarea{margin:8px 0 14px}.workflow .voided{color:#89969d}.report-card{border:1px solid #dce6e9;padding:22px;border-radius:12px;margin:18px 0}.report-card small{word-break:break-all}.extracted{white-space:pre-wrap;line-height:1.8;max-height:320px;overflow:auto;background:#f6f8f9;padding:16px}.pdf-preview{width:100%;height:650px;border:1px solid #ccdadd;border-radius:8px}.workflow summary{cursor:pointer;margin:12px 0;color:#087c88}.workflow fieldset:disabled{opacity:.7}
