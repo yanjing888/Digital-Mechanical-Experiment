@@ -494,7 +494,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <div class="wf-teacher-bar__main">
             <h2>{{ run.expName }} · {{ tab === 'report' ? (run.timeText || stamp(run.createdAt)) : `${run.groupName} · 第 ${run.attempt} 次` }}</h2>
             <p v-if="tab !== 'report'" class="wf-teacher-members">{{ run.members.map(m => `${m.name}${m.cls ? '（' + m.cls + '）' : ''}`).join('、') }}</p>
-            <p v-if="tab !== 'report'" class="wf-teacher-members">操作分 {{ run.operationScore ?? run.calculatedScore }} 分 · {{ run.classOpen ? '扣分待确认' : '扣分已确认' }} · {{ run.archived ? '记录已提交' : '记录未提交' }}</p>
+            <p v-if="tab !== 'report'" class="wf-teacher-members">操作分 {{ run.operationScore ?? run.calculatedScore }} 分 · {{ run.classOpen ? '扣分待确认' : '扣分已确认' }} · {{ run.archived ? '记录已提交' : '记录未提交' }}<span v-if="run.trialItems"> · 子实验 {{ completedTrialCount }} / {{ run.trialItems.length }} 项完成</span></p>
           </div>
           <label v-if="tab === 'report'" class="wf-run-picker wf-teacher-bar__pick"><span>选择课次</span><select :value="run.taskId" :disabled="busy" aria-label="选择课次" @change="action(() => select(teacherTasks.find(t => t.taskId === $event.target.value).id))"><option v-for="t in teacherTasks" :key="t.taskId" :value="t.taskId">{{ t.timeText || stamp(t.createdAt) }} · {{ t.expName }}</option></select></label><label v-else-if="runs.length > 1" class="wf-run-picker wf-teacher-bar__pick"><span>选择实验小组（{{ runs.length }} 条记录）</span><select class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验小组" @change="onPickRun"><optgroup v-for="group in teacherRunGroups" :key="group.name" :label="group.name"><option v-for="item in group.items" :key="item.id" :value="item.id">{{ item.groupName }} · 第 {{ item.attempt }} 次</option></optgroup></select></label>
 
@@ -551,7 +551,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <div v-if="isLabPage" class="wf-step-nav"><button type="button" class="btn btn-ghost" @click="prevLabStep">上一步</button><button type="button" class="btn btn-primary" :disabled="!labStepDone('capture')" @click="nextLabStep">下一步：{{ nextLabStepTitle }}</button></div>
         </section>
         <section v-if="teacher && tab === 'deduct'" class="wf-panel wf-panel--teacher-op wf-panel--deduct">
-          <section class="wf-classroom-overview" aria-label="本课次小组进度">
+          <section v-if="classroomRuns.length > 1" class="wf-classroom-overview" aria-label="本课次小组进度">
             <header>
               <h3>本课次小组</h3>
               <div class="wf-classroom-counts"><span>实验中 {{ classroomCounts.collecting }}</span><span>待确认扣分 {{ classroomCounts.grading }}</span><span>待学生选择 {{ classroomCounts.published }}</span><span>记录已提交 {{ classroomCounts.submitted }}</span></div>
@@ -609,6 +609,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
 <style scoped>
 .wf-classroom-bar .btn{background-image:none;box-shadow:none}
 .wf-classroom-bar .btn-primary{background:#245b65;border-color:#245b65;color:#fff}
+.wf-classroom-counts span{padding:0;background:transparent;border:0;border-radius:0}
 </style>
 <style>
 .wf-stepper--teacher{padding:12px 16px;flex-wrap:wrap;border:1px solid #e1e9ed;border-top:0;background:#fff}.wf-stepper--teacher .wf-step{flex:1 1 auto;min-width:88px;font-size:13px;padding:10px 12px}.wf-report-pick{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}.wf-report-chip{border:1px solid #dce6e9;background:#f8fafb;border-radius:999px;padding:8px 16px;cursor:pointer;font:inherit;color:#52666f}.wf-report-chip.active{background:#087c88;border-color:#087c88;color:#fff}.report-card--solo{margin:0}.wf-table-wrap--tall{max-height:none}.wf-checks{display:grid;gap:12px;margin:20px 0}.workflow td small{display:block;margin-top:6px}.workflow textarea{margin:8px 0 14px}.workflow .voided{color:#89969d}.report-card{border:1px solid #dce6e9;padding:22px;border-radius:12px;margin:18px 0}.report-card small{word-break:break-all}.extracted{white-space:pre-wrap;line-height:1.8;max-height:320px;overflow:auto;background:#f6f8f9;padding:16px}.pdf-preview{width:100%;height:650px;border:1px solid #ccdadd;border-radius:8px}.workflow summary{cursor:pointer;margin:12px 0;color:#087c88}.workflow fieldset:disabled{opacity:.7}
