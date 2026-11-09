@@ -14,6 +14,13 @@ const props = defineProps({
 })
 
 const stamp = v => (v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '—')
+const recordState = computed(() => {
+  const r = props.run
+  if (r.archived) return `已提交 · ${stamp(r.archivedAt)}`
+  const complete = r.trialItems ? r.trialItems.length > 0 && r.trialItems.every(t => t.dataReady && t.photoReady) : !!r.data && !!r.photos?.length
+  if (!complete) return '采集中'
+  return r.classOpen ? '待教师确认成绩' : '待学生接受成绩并提交'
+})
 
 const deductionTotal = computed(() =>
   props.deductions.reduce((sum, d) => sum + (Number(d.points) || 0), 0),
@@ -37,7 +44,7 @@ const operationScore = computed(() => {
         <div><dt>实验时间</dt><dd>{{ run.experimentAt ? stamp(run.experimentAt) : (run.timeText || '—') }}</dd></div>
         <div v-if="run.specimenId"><dt>试件编号</dt><dd>{{ run.specimenId }}</dd></div>
         <div v-if="run.deviceId"><dt>设备编号</dt><dd>{{ run.deviceId }}</dd></div>
-        <div><dt>记录状态</dt><dd>{{ run.archived ? `已提交 · ${stamp(run.archivedAt)}` : run.classOpen ? '待教师确认扣分' : '待学生接受成绩并提交' }}</dd></div>
+        <div><dt>记录状态</dt><dd>{{ recordState }}</dd></div>
       </dl>
     </header>
 

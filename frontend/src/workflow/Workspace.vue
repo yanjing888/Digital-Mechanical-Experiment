@@ -6,6 +6,7 @@ import CurveChart from './CurveChart.vue'
 import StressStrainChart from './StressStrainChart.vue'
 import { isStressStrainTrial } from './stress-strain.js'
 import OperationRecordDoc from './OperationRecordDoc.vue'
+import ExperimentRecords from './ExperimentRecords.vue'
 import StudentReport from './StudentReport.vue'
 import ReportPreview from './ReportPreview.vue'
 import ReportReview from './ReportReview.vue'
@@ -495,9 +496,10 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
       </section>
     </div>
         <Gradebook v-if="teacher && tab === 'grades' && !showSettings" />
-        <p v-if="teacher && !run && !showSettings && tab !== 'grades'" class="wf-empty wf-empty--page">暂无实验记录，请先下发实验任务。</p>
+        <ExperimentRecords v-if="teacher && tab === 'record' && !showSettings" :runs="runs" :loading="busy" @refresh="action(listRuns)" />
+        <p v-if="teacher && !run && !showSettings && tab !== 'grades' && tab !== 'record'" class="wf-empty wf-empty--page">暂无实验记录，请先下发实验任务。</p>
         <template v-if="run && (!teacher || !showSettings)">
-        <header v-if="teacher && tab !== 'grades'" class="wf-teacher-bar">
+        <header v-if="teacher && tab !== 'grades' && tab !== 'record'" class="wf-teacher-bar">
           <div class="wf-teacher-bar__main">
             <h2>{{ run.expName }} · {{ tab === 'report' ? (run.timeText || stamp(run.createdAt)) : `${run.groupName} · 第 ${run.attempt} 次` }}</h2>
             <p v-if="tab !== 'report'" class="wf-teacher-members">{{ run.members.map(m => `${m.name}${m.cls ? '（' + m.cls + '）' : ''}`).join('、') }}</p>
@@ -584,10 +586,6 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
             </div>
             <section class="wf-deduction-records" aria-label="本次课堂扣分记录"><h3>已记录扣分</h3><p v-if="!run.deductions.length" class="wf-empty wf-empty--inline">暂无扣分记录</p><div v-else class="wf-table-wrap wf-table-wrap--tall"><table><thead><tr><th>项目</th><th>分值</th><th>依据</th><th></th></tr></thead><tbody><tr v-for="d in run.deductions" :key="d.id" :class="{ voided: d.voided }"><td>{{ d.label }}<small>{{ stamp(d.at) }}</small></td><td>{{ d.voided ? '已撤销' : `-${d.points}` }}</td><td>{{ d.reason || '—' }}</td><td><button v-if="!d.voided" type="button" class="btn btn-ghost" :disabled="busy" @click="action(async () => { run = await call(`/runs/${run.id}/deductions/${d.id}/void`, 'POST', { revision: run.revision, reason: controlReason }) }, '已撤销')">撤销</button></td></tr></tbody></table></div></section>
           </div>
-        </section>
-        <section v-if="teacher && tab === 'record'" class="wf-panel wf-panel--teacher-op wf-panel--op-doc">
-          <p v-if="!allTrialsComplete" class="wf-empty wf-empty--inline">该组尚未完成全部子实验。</p>
-          <OperationRecordDoc v-else :run="run" :points="points" :images="images" :deductions="activeDeductions" :read-only="true" />
         </section>
         <section v-if="isLabPage && tab === 'operation'" class="wf-panel wf-panel--student wf-panel--op-doc-wrap">
           <ScoreConfirmation :run="run" :busy="busy" @submit="action(submitOperationRecord, '操作记录已提交')" @confirm="values => action(() => confirmScore(values), '成绩已确认')" @retake="reason => action(() => requestRetake(reason), '重做申请已提交')" />
