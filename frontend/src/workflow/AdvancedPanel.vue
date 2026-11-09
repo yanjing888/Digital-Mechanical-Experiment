@@ -50,7 +50,6 @@ function clearToast() { if (error.value) error.value = ''; else if (rosterError.
       <p v-if="run.retakeRequest?.status === 'pending'">重做申请：{{ run.retakeRequest.reason }}</p>
       <p v-else-if="run.retakeRequest?.status === 'rejected'">未安排重做：{{ run.retakeRequest.reason }}</p>
       <p v-else-if="run.retakeRequest?.status === 'arranged'">已建立新的重做记录。</p>
-      <h3>安排学生重做</h3>
       <fieldset :disabled="busy || loadingStudents">
         <label>临时组名称<input v-model="retake.name"></label>
         <p class="wf-hint">共 {{ eligible.length }} 人，已选 {{ retake.members.length }} 人。</p>

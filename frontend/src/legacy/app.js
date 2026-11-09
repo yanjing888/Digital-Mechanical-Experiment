@@ -980,7 +980,6 @@ export function bootApp() {
     }).join('');
 
     return ''
-      + pageHero('', '下发实验任务', '')
       + '<div class="dashboard-grid assignment-layout">'
       // 左侧主区：实验安排 + 分组管理
       +   '<div class="dash-main">'
@@ -1044,7 +1043,7 @@ export function bootApp() {
   function pageTeacherStudents() {
     var students = ui.roster || [];
     var classes = Array.from(new Set(students.map(function (s) { return s.cls || '未设置班级'; }))).sort();
-    return pageHero('', '学生名单', '', '<div class="row roster-actions"><button type="button" class="btn btn-ghost btn-sm" id="list-dl-template">下载模板</button><label class="btn btn-primary btn-sm" style="cursor:pointer">上传名单<input type="file" id="list-roster-file" accept=".xlsx,.xls,.csv" hidden /></label></div>')
+    return '<div class="row roster-actions" style="justify-content:flex-end;margin-bottom:16px"><button type="button" class="btn btn-ghost btn-sm" id="list-dl-template">下载模板</button><label class="btn btn-primary btn-sm" style="cursor:pointer">上传名单<input type="file" id="list-roster-file" accept=".xlsx,.xls,.csv" hidden /></label></div>'
       + '<div class="card dash-card"><div class="dash-card-head"><strong>共 ' + students.length + ' 位学生</strong><div class="row" style="gap:10px"><select id="student-class-filter" class="inp"><option value="">全部班级</option>' + classes.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') + '</select><input id="student-search" class="inp" placeholder="搜索姓名或学号" /></div></div>'
       + '<div class="dispatch-table-wrap"><table class="dispatch-table"><thead><tr><th>班级</th><th>姓名</th><th>学号</th><th>登录账号</th><th>小组</th><th>密码</th></tr></thead><tbody id="student-list-body">'
       + students.sort(function (a, b) { return String(a.cls || '').localeCompare(String(b.cls || ''), 'zh') || String(a.sid).localeCompare(String(b.sid)); }).map(function (s) { return '<tr data-cls="' + esc(s.cls || '未设置班级') + '" data-search="' + esc((s.name + ' ' + s.sid).toLowerCase()) + '"><td>' + esc(s.cls || '未设置班级') + '</td><td><strong>' + esc(s.name) + '</strong></td><td>' + esc(s.sid) + '</td><td>' + esc(s.sid) + '</td><td>' + esc(s.groupName || '未分组') + '</td><td><button type="button" class="btn btn-ghost btn-sm btn-reset-student" data-sid="' + esc(s.sid) + '">重置密码</button></td></tr>'; }).join('')

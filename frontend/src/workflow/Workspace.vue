@@ -57,11 +57,6 @@ const teacherMenus = [
   { id: 'settings', title: '教学设置', children: [{ id: 'settings', title: '扣分项配置' }] },
 ]
 const collapsedMenus = reactive({})
-const teacherLocation = computed(() => {
-  const id = showSettings.value ? 'settings' : tab.value
-  const group = teacherMenus.find(group => group.children.some(item => item.id === id))
-  return `${group?.title || ''} / ${group?.children.find(item => item.id === id)?.title || ''}`
-})
 function pickTeacherMenu(id) {
   showSettings.value = id === 'settings'
   if (id !== 'settings') tab.value = id
@@ -488,10 +483,9 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
         <button type="button" class="btn btn-primary" :disabled="busy" @click="refreshLab">重新加载</button>
       </div>
       <main v-if="teacher || run" class="wf-main" :class="{ 'wf-main--teacher': teacher, 'wf-main--student': !teacher }">
-        <p v-if="teacher" class="wf-teacher-breadcrumb">{{ teacherLocation }}</p>
     <div v-if="teacher && showSettings" class="wf-settings-page">
-      <section class="wf-panel" aria-labelledby="deduction-config-title">
-        <header class="wf-config-drawer__head"><div><h2 id="deduction-config-title">扣分项配置</h2></div><button type="button" class="btn btn-ghost wf-config-close" aria-label="关闭扣分项配置" @click="showSettings = false">×</button></header>
+      <section class="wf-panel" aria-label="扣分项配置">
+        <header class="wf-config-drawer__head" style="justify-content:flex-end"><button type="button" class="btn btn-ghost wf-config-close" aria-label="关闭扣分项配置" @click="showSettings = false">×</button></header>
         <fieldset :disabled="busy"><div class="wf-deduction-config"><div class="wf-deduction-config__labels"><span>扣分项</span><span>扣分值</span><span>操作</span></div><div v-for="(item,i) in settings.catalog" :key="item.id" class="wf-deduction-config__row"><input v-model="item.label" :aria-label="`第 ${i + 1} 个扣分项名称`" placeholder="例如：实验运行时尝试打开保护罩"><label><input v-model.number="item.points" :aria-label="`第 ${i + 1} 个扣分项分值`" type="number" min="0" max="100"><span>分</span></label><button type="button" class="btn btn-ghost" :aria-label="`移除${item.label || '该扣分项'}`" @click="settings.catalog.splice(i,1)">移除</button></div></div><button type="button" class="btn btn-ghost" @click="settings.catalog.push({ id: newId(), label: '', points: 0 })">+ 增加扣分项</button><label class="wf-config-confirm"><input v-model="settings.catalogConfirmed" type="checkbox"> 我已确认扣分项目和分值，可用于课堂记录</label><div class="wf-config-actions"><button class="btn btn-primary" @click="action(saveSettings, '扣分项已保存')">保存扣分项</button><button type="button" class="btn btn-ghost" @click="showSettings = false">取消</button></div></fieldset>
       </section>
     </div>

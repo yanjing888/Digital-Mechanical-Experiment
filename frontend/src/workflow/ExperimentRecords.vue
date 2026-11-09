@@ -55,9 +55,9 @@ onUnmounted(() => { generation++; clearImages() })
 </script>
 
 <template>
-  <section class="wf-panel experiment-records">
+  <section class="wf-panel experiment-records" :aria-label="active ? '实验记录详情' : '实验记录'">
     <template v-if="!active">
-      <header class="records-heading"><h2>实验记录</h2><button type="button" class="btn btn-ghost" :disabled="loading" @click="emit('refresh')">{{ loading ? '正在加载…' : '刷新' }}</button></header>
+      <header class="records-heading"><button type="button" class="btn btn-ghost" :disabled="loading" @click="emit('refresh')">{{ loading ? '正在加载…' : '刷新' }}</button></header>
       <div class="records-filters">
         <label>实验项目<select v-model="experiment" @change="group = ''"><option value="">全部项目</option><option v-for="[id, name] in experiments" :key="id" :value="id">{{ name }}</option></select></label>
         <label>实验小组<select v-model="group"><option value="">全部小组</option><option v-for="name in groups" :key="name" :value="name">{{ name }}</option></select></label>
@@ -84,7 +84,7 @@ onUnmounted(() => { generation++; clearImages() })
       <p v-if="!filtered.length" class="records-empty" role="status">{{ loading ? '正在加载实验记录…' : runs.length ? '没有符合条件的实验记录' : '暂无实验记录' }}</p>
     </template>
     <template v-else>
-      <header class="records-detail-heading"><button type="button" class="btn btn-ghost" @click="back">返回列表</button><h2>实验记录详情</h2></header>
+      <header class="records-detail-heading"><button type="button" class="btn btn-ghost" @click="back">返回列表</button></header>
       <p v-if="loadingDetail" class="records-empty">正在加载实验记录…</p>
       <div v-else-if="error" class="records-error" role="alert"><p>{{ error }}</p><button type="button" class="btn btn-ghost" @click="open(active)">重新加载</button></div>
       <OperationRecordDoc v-else-if="detail" :run="detail" :points="detail.data?.points || []" :images="images" :deductions="(detail.deductions || []).filter(item => !item.voided)" />
@@ -94,7 +94,7 @@ onUnmounted(() => { generation++; clearImages() })
 
 <style scoped>
 .experiment-records{padding:24px 28px}
-.records-heading,.records-detail-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px}
+.records-heading,.records-detail-heading{display:flex;align-items:center;justify-content:flex-end;gap:16px;margin-bottom:24px}
 .records-heading h2,.records-detail-heading h2{margin:0;font-size:21px}
 .records-detail-heading{justify-content:flex-start}.records-detail-heading h2{font-size:18px}
 .records-filters{display:grid;grid-template-columns:1.15fr .85fr 1fr 1fr 1.25fr;gap:16px}

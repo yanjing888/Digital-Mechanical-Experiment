@@ -52,9 +52,9 @@ function fragments(side) { const text = comparison.value?.[`${side}Text`] || '';
 function focusSegment(i) { originals.value = false; setTimeout(() => ['left','right'].forEach(side => document.getElementById(`match-${side}-${i}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })), 0) }
 </script>
 <template>
-  <section class="report-desk">
+  <section class="report-desk" aria-label="报告批阅与查重">
     <ToastNotice :message="error || notice" :type="error ? 'error' : 'success'" @close="clearToast" />
-    <div v-if="returnRow" class="desk-modal" role="dialog" aria-modal="true" aria-label="退回报告"><form @submit.prevent="perform(returnFromList, '报告已退回')"><h3>退回 {{ returnRow.name }} 的报告</h3><label>退回理由<textarea v-model="returnReason" required rows="4" autofocus /></label><div class="wf-actions"><button class="btn btn-primary" :disabled="busy || !returnReason.trim()">确认退回</button><button type="button" class="btn btn-ghost" :disabled="busy" @click="returnRow = null">取消</button></div></form></div><header class="desk-head"><h2>{{ comparisonOpen ? '查重对比' : active ? (mode === 'similarity' ? '实验报告查重' : '批改实验报告') : '实验报告列表' }}</h2><div class="wf-actions"><button v-if="active" class="btn btn-ghost" @click="comparisonOpen ? comparisonOpen = false : active = null">返回{{ comparisonOpen ? '查重' : '列表' }}</button><button class="btn btn-ghost" :disabled="busy" @click="perform(load, '已刷新')">刷新</button></div></header>
+    <div v-if="returnRow" class="desk-modal" role="dialog" aria-modal="true" aria-label="退回报告"><form @submit.prevent="perform(returnFromList, '报告已退回')"><h3>退回 {{ returnRow.name }} 的报告</h3><label>退回理由<textarea v-model="returnReason" required rows="4" autofocus /></label><div class="wf-actions"><button class="btn btn-primary" :disabled="busy || !returnReason.trim()">确认退回</button><button type="button" class="btn btn-ghost" :disabled="busy" @click="returnRow = null">取消</button></div></form></div><header class="desk-head"><h2 v-if="active || comparisonOpen">{{ comparisonOpen ? '查重对比' : active ? (mode === 'similarity' ? '实验报告查重' : '批改实验报告') : '实验报告列表' }}</h2><div class="wf-actions"><button v-if="active" class="btn btn-ghost" @click="comparisonOpen ? comparisonOpen = false : active = null">返回{{ comparisonOpen ? '查重' : '列表' }}</button><button class="btn btn-ghost" :disabled="busy" @click="perform(load, '已刷新')">刷新</button></div></header>
     <template v-if="!active"><div class="desk-filters">
       <label>班级<select v-model="selectedClass" aria-label="筛选班级"><option value="">全部班级</option><option v-for="name in classes" :key="name">{{ name }}</option></select></label>
       <label>实验小组<select v-model="selectedGroup" aria-label="筛选实验小组"><option value="">全部小组</option><option v-for="name in groups" :key="name">{{ name }}</option></select></label>
@@ -75,6 +75,7 @@ function focusSegment(i) { originals.value = false; setTimeout(() => ['left','ri
 .desk-filters{display:grid;grid-template-columns:1fr 1fr .85fr 1fr 1.3fr;gap:16px;margin:4px 0 20px}
 .desk-filters label{display:grid;gap:7px;font-size:13px;color:#52666f}
 .desk-filters input,.desk-filters select{height:40px;min-width:0;width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cddce1;border-radius:6px;background:#fff;color:#243b45;font:inherit}
+.desk-head>.wf-actions{margin-left:auto}
 .desk-count{margin:0 0 14px;color:#52666f;font-size:13px}
 @media(max-width:1000px){.desk-filters{grid-template-columns:1fr 1fr 1fr}.desk-filter-search{grid-column:2/-1}}
 @media(max-width:520px){.desk-filters{grid-template-columns:1fr 1fr;gap:12px}.desk-filter-search{grid-column:1/-1}}
