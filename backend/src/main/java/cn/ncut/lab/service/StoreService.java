@@ -305,16 +305,18 @@ public class StoreService {
 
     // ============ 名单导入 ============
     @Transactional
-    public Map<String, Object> importRoster(List<Map<String, String>> rows) {
+    public Map<String, Object> importRoster(List<Map<String, String>> rows, String teacherName) {
         if (rows == null || rows.isEmpty()) throw new ApiException(400, "表格中没有有效学生数据");
         String defaultHash = PasswordUtil.hash(studentDefaultPassword);
         int created = 0, updated = 0;
+        Set<String> imported = new LinkedHashSet<>();
         for (Map<String, String> row : rows) {
             String sid = str(row.get("sid"));
             String name = str(row.get("name"));
             String cls = str(row.get("cls"));
             if (cls.isEmpty()) cls = "—";
             if (sid.isEmpty() || name.isEmpty()) continue;
+            imported.add(sid);
             List<Map<String, Object>> exist = jdbc.queryForList("SELECT sid FROM students WHERE sid = ?", sid);
             if (!exist.isEmpty()) {
                 jdbc.update("UPDATE students SET name = ?, cls = ? WHERE sid = ?", name, cls, sid);
@@ -325,10 +327,26 @@ public class StoreService {
                 created++;
             }
         }
+        if (imported.isEmpty()) throw new ApiException(400, "表格中没有有效学生数据");
+        jdbc.update("INSERT INTO workflow_settings(id,payload) VALUES(?,?) ON DUPLICATE KEY UPDATE payload=VALUES(payload)",
+                rosterBatchKey(teacherName), JsonUtil.write(Map.of("studentIds", imported)));
         Map<String, Object> out = rosterResult();
+        out.put("importedStudentIds", new ArrayList<>(imported));
         out.put("created", created);
         out.put("updated", updated);
         return out;
+    }
+
+    private String rosterBatchKey(String teacherName) {
+        return UUID.nameUUIDFromBytes(("roster-import:" + teacherName).getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .toString().replace("-", "");
+    }
+
+    public List<String> importedStudentIds(String teacherName) {
+        List<Map<String, Object>> rows = jdbc.queryForList("SELECT payload FROM workflow_settings WHERE id = ?", rosterBatchKey(teacherName));
+        if (rows.isEmpty()) return List.of();
+        Object ids = JsonUtil.readMap(str(rows.get(0).get("payload")), Map.of()).get("studentIds");
+        return ids instanceof List<?> list ? list.stream().map(String::valueOf).distinct().toList() : List.of();
     }
 
     private String str(Object o) { return o == null ? "" : String.valueOf(o).trim(); }
@@ -408,13 +426,23 @@ public class StoreService {
     }
 
     @Transactional
-    public Map<String, Object> autoGroup(Integer size, Integer count, String mode, String prefix) {
+    public Map<String, Object> autoGroup(Integer size, Integer count, String mode, String prefix, String teacherName) {
         String m = "even".equals(mode) ? "even" : "random";
         String pfx = (prefix == null || prefix.isBlank()) ? "第" : prefix.trim();
-        List<Map<String, Object>> students = listStudents();
+        List<String> imported = importedStudentIds(teacherName);
+        if (imported.isEmpty()) throw new ApiException(400, "请先导入本次学生名单，再自动分组");
+        String placeholders = String.join(",", Collections.nCopies(imported.size(), "?"));
+        List<Map<String, Object>> students = jdbc.queryForList(
+                "SELECT sid, group_id FROM students WHERE sid IN (" + placeholders + ") "
+                        + "AND NOT EXISTS (SELECT 1 FROM task_groups tg WHERE tg.group_id = students.group_id) ORDER BY sid",
+                imported.toArray());
         List<String> sids = new ArrayList<>();
         for (Map<String, Object> s : students) sids.add((String) s.get("sid"));
-        if (sids.isEmpty()) throw new ApiException(400, "暂无学生，请先导入名单");
+        if (sids.isEmpty()) throw new ApiException(400, "本次导入的学生均已下发任务或已不存在，无可分组学生");
+        Set<Object> previousGroups = new HashSet<>();
+        for (Map<String, Object> student : students) {
+            if (student.get("group_id") != null) previousGroups.add(student.get("group_id"));
+        }
 
         if (m.equals("random")) Collections.shuffle(sids, RND);
 
@@ -429,19 +457,19 @@ public class StoreService {
         for (int i = 0; i < groupCount; i++) buckets.add(new ArrayList<>());
         for (int i = 0; i < sids.size(); i++) buckets.get(i % groupCount).add(sids.get(i));
 
-        jdbc.update("UPDATE students SET group_id = NULL");
-        List<Map<String, Object>> used = jdbc.queryForList("SELECT DISTINCT group_id FROM task_groups");
-        Set<Object> usedIds = new HashSet<>();
-        for (Map<String, Object> u : used) usedIds.add(u.get("group_id"));
-        for (Map<String, Object> g : jdbc.queryForList("SELECT id FROM lab_groups")) {
-            if (!usedIds.contains(g.get("id"))) jdbc.update("DELETE FROM lab_groups WHERE id = ?", g.get("id"));
-        }
         for (int i = 0; i < buckets.size(); i++) {
             String gid = "G_" + nano(8);
             jdbc.update("INSERT INTO lab_groups (id, name) VALUES (?, ?)", gid, pfx + (i + 1) + "组");
             for (String sid : buckets.get(i)) jdbc.update("UPDATE students SET group_id = ? WHERE sid = ?", gid, sid);
         }
-        return rosterResult();
+        for (Object gid : previousGroups) {
+            jdbc.update("DELETE FROM lab_groups WHERE id = ? "
+                    + "AND NOT EXISTS (SELECT 1 FROM students s WHERE s.group_id = lab_groups.id) "
+                    + "AND NOT EXISTS (SELECT 1 FROM task_groups tg WHERE tg.group_id = lab_groups.id)", gid);
+        }
+        Map<String, Object> out = rosterResult();
+        out.put("importedStudentIds", imported);
+        return out;
     }
 
     // ============ 学生字段保存 ============
@@ -868,6 +896,7 @@ public class StoreService {
         if ("admin".equals(sess.get("role"))) return Map.of("role", "admin", "adminName", sess.get("teacher_name"));
         Map<String, Object> meta = listMeta();
         if ("teacher".equals(sess.get("role"))) {
+            meta.put("importedStudentIds", importedStudentIds(str(sess.get("teacher_name"))));
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("role", "teacher");
             out.put("teacherName", sess.get("teacher_name"));

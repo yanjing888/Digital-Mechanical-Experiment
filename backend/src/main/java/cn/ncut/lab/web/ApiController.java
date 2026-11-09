@@ -97,7 +97,7 @@ public class ApiController {
         Sessions.requireTeacher(req);
         if (file == null || file.isEmpty()) throw new ApiException(400, "请上传学生名单文件");
         try {
-            return store.importRoster(roster.parse(file.getInputStream()));
+            return store.importRoster(roster.parse(file.getInputStream()), Sessions.teacherName(req));
         } catch (ApiException e) {
             throw e;
         } catch (Exception e) {
@@ -131,7 +131,7 @@ public class ApiController {
         if (body == null) body = Map.of();
         Integer size = body.get("size") == null ? null : toInt(body.get("size"));
         Integer count = body.get("count") == null ? null : toInt(body.get("count"));
-        return store.autoGroup(size, count, str(body.get("mode")), str(body.get("prefix")));
+        return store.autoGroup(size, count, str(body.get("mode")), str(body.get("prefix")), Sessions.teacherName(req));
     }
 
     @PostMapping("/groups/ungroup")

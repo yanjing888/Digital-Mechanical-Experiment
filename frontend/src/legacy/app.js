@@ -901,6 +901,7 @@ export function bootApp() {
 
   function applyRosterMeta(result) {
     if (!ui.snap.meta) ui.snap.meta = {};
+    if (result.importedStudentIds) ui.snap.meta.importedStudentIds = result.importedStudentIds;
     if (result.students) ui.snap.meta.students = result.students;
     if (result.groups) ui.snap.meta.groups = result.groups;
     if (result.ungrouped) ui.snap.meta.ungrouped = result.ungrouped;
@@ -912,12 +913,16 @@ export function bootApp() {
   function pageTeacherAssign() {
     var meta = ui.snap.meta || {};
     var tasks = ui.snap.tasks || [];
-    var students = meta.students || [];
-    var groups = meta.groups || [];
-    var ungrouped = Array.isArray(meta.ungrouped)
-      ? meta.ungrouped
-      : students.filter(function (s) { return !s.groupId; });
+    var importedIds = new Set(meta.importedStudentIds || []);
+    var students = (meta.students || []).filter(function (s) { return importedIds.has(s.sid); });
+    var groups = importedIds.size ? (meta.groups || []).filter(function (g) {
+      return (g.members || []).every(function (s) { return importedIds.has(s.sid); });
+    }) : [];
     var assignedGroups = new Set(tasks.flatMap(function (t) { return t.groupIds || []; }));
+    var visibleGroupIds = new Set(groups.map(function (g) { return g.id; }));
+    var ungrouped = students.filter(function (s) {
+      return !s.groupId || (!visibleGroupIds.has(s.groupId) && !assignedGroups.has(s.groupId));
+    });
     var pendingGroups = groups.filter(function (g) { return !assignedGroups.has(g.id); });
     var readyGroups = pendingGroups.filter(function (g) { return (g.members || []).length > 0; });
     var canDispatch = students.length > 0 && readyGroups.length > 0;
@@ -931,7 +936,7 @@ export function bootApp() {
         + '<span><strong>' + esc(s.name) + '</strong>'
         + '<span class="sub"> · ' + esc(s.sid) + (s.cls ? ' · ' + esc(s.cls) : '') + '</span></span>'
         + '</label>';
-    }).join('') : '<div class="empty-soft">' + (students.length ? '已全部分组' : '暂无学生') + '</div>';
+    }).join('') : '<div class="empty-soft">' + (students.length ? '本次名单已全部分组' : '请先导入本次学生名单') + '</div>';
 
     var groupCards = pendingGroups.length ? pendingGroups.map(function (g) {
       var members = g.members || [];
@@ -1002,7 +1007,7 @@ export function bootApp() {
       +       '<div class="dash-card-head">'
       +         '<h3 class="dash-card-title"><span class="title-dot"></span>分组管理</h3>'
       +         '<div class="row" style="gap:.4rem">'
-      +           '<button type="button" class="btn btn-ghost btn-sm" id="btn-auto-group">自动分组</button>'
+      +           '<button type="button" class="btn btn-ghost btn-sm" id="btn-auto-group"' + (students.length ? '' : ' disabled') + '>自动分组</button>'
       +           '<button type="button" class="btn btn-ghost btn-sm" id="btn-create-group">+ 新建小组</button>'
       +         '</div>'
       +       '</div>'
@@ -1793,6 +1798,7 @@ export function bootApp() {
       document.querySelectorAll('input[name="as-trial"], input[name="dispatch-group"]').forEach(function(el) { el.addEventListener('change', saveAssignDraft); });
       bindRosterActions('btn-dl-template', 'roster-file', saveAssignDraft, async function (result) {
         applyRosterMeta(result);
+        ui.assignDraft.groupIds = null;
         await showPage('t-assign');
       });
 
@@ -1861,7 +1867,7 @@ export function bootApp() {
             +   '<button type="button" data-mode="random" class="on">随机分组</button>'
             +   '<button type="button" data-mode="even">按名单平均</button>'
             + '</div>'
-            + '<p class="sub" style="margin:.6rem 0 0">将清空现有未下发的分组并重新分配全部学生。</p>'
+            + '<p class="sub" style="margin:.6rem 0 0">仅对本次导入名单中尚未下发任务的学生重新分组，其他学生和已下发的小组保持不变。</p>'
             + '</div>',
           '<button type="button" class="btn btn-ghost" data-close>取消</button>'
             + '<button type="button" class="btn btn-primary" id="btn-auto-group-ok">开始分组</button>',
@@ -1891,6 +1897,7 @@ export function bootApp() {
           try {
             var r = await api.autoGroup(payload);
             applyRosterMeta(r);
+            ui.assignDraft.groupIds = null;
             closeModal();
             showPage('t-assign');
           } catch (e) { await showAlert(e.message); }
