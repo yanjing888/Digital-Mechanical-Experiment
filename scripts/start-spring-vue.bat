@@ -1,6 +1,14 @@
 @echo off
-REM 固定端口：前端 3780 / 后端 8586 / 断口分析 8090
+REM Ports: frontend 3780 / backend 8586 / fracture 8090
 cd /d "%~dp0.."
+REM Maven can overwrite an active JAR before repackage fails on Windows.
+netstat -ano | findstr /c:":8586 " | findstr /c:"LISTENING" >nul 2>&1
+if not errorlevel 1 (
+    echo [ERROR] Backend port 8586 is already in use. Stop the backend before building.
+    echo [INFO] For a deployment ZIP without interrupting the running backend, run:
+    echo powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-deploy.ps1
+    exit /b 1
+)
 echo Building Vue and Spring Boot application...
 call npm --prefix frontend run build
 if errorlevel 1 exit /b 1

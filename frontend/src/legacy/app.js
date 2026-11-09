@@ -871,6 +871,34 @@ export function bootApp() {
   }
 
   /* ========== Pages ========== */
+  function bindRosterActions(downloadId, uploadId, beforeUpload, onUploaded) {
+    var download = document.getElementById(downloadId);
+    var input = document.getElementById(uploadId);
+    if (download) download.onclick = async function () {
+      var text = download.textContent;
+      download.disabled = true;
+      download.textContent = '正在下载…';
+      try { await api.downloadRosterTemplate(); }
+      catch (e) { await showAlert(e.message); }
+      finally { download.disabled = false; download.textContent = text; }
+    };
+    if (input) input.onchange = async function () {
+      var file = input.files && input.files[0];
+      if (!file) return;
+      if (beforeUpload) beforeUpload();
+      var label = input.parentElement.firstChild;
+      var text = label.textContent;
+      input.disabled = true;
+      label.textContent = '正在导入…';
+      try {
+        var result = await api.uploadRoster(file);
+        await showAlert('已导入：新增 ' + result.created + ' 人，更新 ' + result.updated + ' 人');
+        await onUploaded(result);
+      } catch (e) { await showAlert(e.message); }
+      finally { input.disabled = false; input.value = ''; label.textContent = text; }
+    };
+  }
+
   function applyRosterMeta(result) {
     if (!ui.snap.meta) ui.snap.meta = {};
     if (result.students) ui.snap.meta.students = result.students;
@@ -1685,13 +1713,10 @@ export function bootApp() {
       };
       document.getElementById('student-class-filter').onchange = filter;
       document.getElementById('student-search').oninput = filter;
-      document.getElementById('list-dl-template').onclick = function () { api.downloadRosterTemplate().catch(function (e) { showAlert(e.message); }); };
-      document.getElementById('list-roster-file').onchange = async function (e) {
-        var file = e.target.files && e.target.files[0];
-        if (!file) return;
-        try { await api.uploadRoster(file); await refreshSession(); showPage('t-students'); }
-        catch (err) { await showAlert(err.message); }
-      };
+      bindRosterActions('list-dl-template', 'list-roster-file', null, async function () {
+        await refreshSession();
+        await showPage('t-students');
+      });
       document.querySelectorAll('.btn-reset-student').forEach(function (btn) {
         btn.onclick = async function () {
           var password = await askInput('重置学生密码', '新密码（至少 6 位）', '', true);
@@ -1766,24 +1791,10 @@ export function bootApp() {
       });
 
       document.querySelectorAll('input[name="as-trial"], input[name="dispatch-group"]').forEach(function(el) { el.addEventListener('change', saveAssignDraft); });
-      var dl = document.getElementById('btn-dl-template');
-      if (dl) dl.onclick = function () {
-        api.downloadRosterTemplate().catch(function (e) { showAlert(e.message); });
-      };
-
-      var file = document.getElementById('roster-file');
-      if (file) file.onchange = async function () {
-        var f = file.files && file.files[0];
-        if (!f) return;
-        saveAssignDraft();
-        try {
-          var r = await api.uploadRoster(f);
-          applyRosterMeta(r);
-          await showAlert('已导入：新增 ' + r.created + ' 人，更新 ' + r.updated + ' 人');
-          showPage('t-assign');
-        } catch (e) { await showAlert(e.message); }
-        file.value = '';
-      };
+      bindRosterActions('btn-dl-template', 'roster-file', saveAssignDraft, async function (result) {
+        applyRosterMeta(result);
+        await showPage('t-assign');
+      });
 
       function openCreateGroupModal() {
         saveAssignDraft();

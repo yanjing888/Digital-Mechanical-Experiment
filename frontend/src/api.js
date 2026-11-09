@@ -29,13 +29,26 @@ async function request(method, path, body) {
   return data
 }
 
+async function rosterFetch(url, options) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 60000)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('名单服务响应超时，请检查后端服务后重试')
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function upload(path, file) {
   const fd = new FormData()
   fd.append('file', file)
   const opts = { method: 'POST', headers: {}, body: fd }
   const token = getToken()
   if (token) opts.headers.Authorization = 'Bearer ' + token
-  const res = await fetch('/api' + path, opts)
+  const res = await rosterFetch('/api' + path, opts)
   let data = null
   try { data = await res.json() } catch { data = null }
   if (!res.ok) {
@@ -48,7 +61,7 @@ async function upload(path, file) {
 
 function downloadTemplate() {
   const token = getToken()
-  return fetch('/api/roster/template', {
+  return rosterFetch('/api/roster/template', {
     headers: token ? { Authorization: 'Bearer ' + token } : {}
   }).then((res) => {
     if (!res.ok) throw new Error('下载模板失败')
@@ -61,7 +74,7 @@ function downloadTemplate() {
     document.body.appendChild(a)
     a.click()
     a.remove()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   })
 }
 
