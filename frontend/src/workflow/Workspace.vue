@@ -15,7 +15,7 @@ import ReportDesk from './ReportDesk.vue'
 import Gradebook from './Gradebook.vue'
 import ToastNotice from './ToastNotice.vue'
 import { newId } from './id.js'
-const props = defineProps({ page: String, teacher: Boolean, sid: String, taskId: String })
+const props = defineProps({ page: String, teacher: Boolean, sid: String, taskId: String, students: { type: Array, default: () => [] } })
 const activeTrial = ref('STEEL_TENS')
 function call(path, method = 'GET', body) {
   const scoped = /^\/runs\/[^/?]+(?:\/|$)/.test(path)
@@ -496,7 +496,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
       </section>
     </div>
         <Gradebook v-if="teacher && tab === 'grades' && !showSettings" />
-        <ExperimentRecords v-if="teacher && tab === 'record' && !showSettings" :runs="runs" :loading="busy" @refresh="action(listRuns)" />
+        <ExperimentRecords v-if="teacher && tab === 'record' && !showSettings" :runs="runs" :students="students" :loading="busy" @refresh="action(listRuns)" />
         <p v-if="teacher && !run && !showSettings && tab !== 'grades' && tab !== 'record'" class="wf-empty wf-empty--page">暂无实验记录，请先下发实验任务。</p>
         <template v-if="run && (!teacher || !showSettings)">
         <header v-if="teacher && tab !== 'grades' && tab !== 'record'" class="wf-teacher-bar">
