@@ -503,7 +503,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
             <p v-if="tab !== 'report'" class="wf-teacher-members">{{ run.members.map(m => `${m.name}${m.cls ? '（' + m.cls + '）' : ''}`).join('、') }}</p>
             <p v-if="tab !== 'report'" class="wf-teacher-members">操作分 {{ run.operationScore ?? run.calculatedScore }} 分 · {{ run.classOpen ? '扣分待确认' : '扣分已确认' }} · {{ run.archived ? '记录已提交' : '记录未提交' }}<span v-if="run.trialItems"> · 子实验 {{ completedTrialCount }} / {{ run.trialItems.length }} 项完成</span></p>
           </div>
-          <label v-if="tab === 'report'" class="wf-run-picker wf-teacher-bar__pick"><span>选择课次</span><select :value="run.taskId" :disabled="busy" aria-label="选择课次" @change="action(() => select(teacherTasks.find(t => t.taskId === $event.target.value).id))"><option v-for="t in teacherTasks" :key="t.taskId" :value="t.taskId">{{ t.timeText || stamp(t.createdAt) }} · {{ t.expName }}</option></select></label><label v-else-if="runs.length > 1" class="wf-run-picker wf-teacher-bar__pick"><span>选择实验小组（{{ runs.length }} 条记录）</span><select class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验小组" @change="onPickRun"><optgroup v-for="group in teacherRunGroups" :key="group.name" :label="group.name"><option v-for="item in group.items" :key="item.id" :value="item.id">{{ item.groupName }} · 第 {{ item.attempt }} 次</option></optgroup></select></label>
+          <label v-if="tab === 'report'" class="wf-run-picker wf-teacher-bar__pick"><span>选择课次</span><select :value="run.taskId" :disabled="busy" aria-label="选择课次" @change="action(() => select(teacherTasks.find(t => t.taskId === $event.target.value).id))"><option v-for="t in teacherTasks" :key="t.taskId" :value="t.taskId">{{ t.timeText || stamp(t.createdAt) }} · {{ t.expName }}</option></select></label><label v-else-if="runs.length > 1" class="wf-run-picker wf-teacher-bar__pick"><span>选择实验小组（{{ runs.length }} 条记录）</span><select class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验小组" @change="onPickRun"><optgroup v-for="group in teacherRunGroups" :key="group.name" :label="group.name"><option v-for="item in group.items" :key="item.id" :value="item.id">{{ item.groupName }} · {{ item.members.map(m => m.name).join('、') }} · 第 {{ item.attempt }} 次</option></optgroup></select></label>
 
         </header>
         <div v-else-if="!teacher" class="wf-student-head">
@@ -575,7 +575,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <div class="wf-classroom-bar">
             <div class="wf-actions wf-classroom-bar__actions">
               <button type="button" :class="['btn', run.classOpen ? 'btn-primary' : 'btn-ghost']" :disabled="busy || (run.classOpen && !allTrialsComplete)" @click="action(() => control(run.classOpen ? 'close' : 'open'), run.classOpen ? '操作成绩已确认' : '已重新开放扣分调整')">{{ run.classOpen ? '确认操作成绩' : '重新调整扣分' }}</button>
-              <p v-if="run.classOpen" class="wf-hint" role="status">{{ !allTrialsComplete ? `尚有 ${missingTrials.length || 1} 项子实验未完成，完成后可确认成绩。` : activeDeductions.length ? '确认后，学生可选择提交记录或申请重做。' : '本次无扣分，确认后的操作成绩为 100 分。' }}</p>
+              <p v-if="run.classOpen && allTrialsComplete" class="wf-hint" role="status">{{ activeDeductions.length ? '确认后，学生可选择提交记录或申请重做。' : '本次无扣分，确认后的操作成绩为 100 分。' }}</p>
               <button v-if="run.archived && run.classOpen" type="button" class="btn btn-ghost" :disabled="busy" @click="action(() => control('return'), '已退回，学生可补采或修正后重新提交')">退回学生修改</button>
             </div>
           </div>
