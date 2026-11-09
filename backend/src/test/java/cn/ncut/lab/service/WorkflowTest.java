@@ -263,6 +263,16 @@ class WorkflowTest {
         assertEquals(false,runs.detail(runId,mate).get("myScoreConfirmed"));
         assertEquals(85.0,map(result.get("myConfirmation")).get("score"));
     }
+    @Test void noDeductionsCanBeConfirmedAsFullMarksBeforeStudentSubmits() throws Exception {
+        collect();
+        teaching.control(runId,teacher,body("action","close"));
+        var result=runs.detail(runId,student);
+        assertEquals(100.0,result.get("operationScore"));
+        assertTrue(list(result.get("deductions")).isEmpty());
+        assertEquals(false,result.get("classOpen"));
+        assertFalse(Boolean.TRUE.equals(result.get("archived")));
+        assertEquals(false,result.get("myScoreConfirmed"));
+    }
     @Test void studentCanRequestRetakeBeforeSubmittingAndTeacherCanArrangeIt() throws Exception {
         collect();teaching.control(runId,teacher,body("action","close"));
         review.requestRetake(runId,student,Map.of("reason","希望重新完成操作"));

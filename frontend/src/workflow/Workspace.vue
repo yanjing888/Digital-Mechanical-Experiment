@@ -443,6 +443,13 @@ onMounted(() => {
       ])
       if (disposed || busy.value || run.value?.id !== id) return
       if (summaries) runs.value = summaries
+      if (props.teacher && fresh.revision !== run.value.revision) {
+        const latest = await call(`/runs/${id}`)
+        if (disposed || busy.value || run.value?.id !== id) return
+        run.value = latest
+        await photos()
+        return
+      }
       if (!props.teacher && fresh.retakeRequest?.childId && fresh.retakeRequest.childId !== run.value.retakeRequest?.childId) {
         await listRuns()
         if (disposed || busy.value || run.value?.id !== id) return
@@ -567,7 +574,8 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <div v-if="run.retakeRequest?.status === 'pending'" class="wf-retake-alert"><div><strong>学生申请重做</strong><span>{{ run.retakeRequest.reason }}</span></div><button type="button" class="btn btn-ghost" @click="tab = 'retake'">处理重做</button></div>
           <div class="wf-classroom-bar">
             <div class="wf-actions wf-classroom-bar__actions">
-              <button type="button" :class="['btn', run.classOpen ? 'btn-primary' : 'btn-ghost']" :disabled="busy || (run.classOpen && !allTrialsComplete)" @click="action(() => control(run.classOpen ? 'close' : 'open'), run.classOpen ? '扣分已确认，学生可查看并选择提交或重做' : '已重新开放扣分调整')">{{ run.classOpen ? '确认本次扣分' : '重新调整扣分' }}</button>
+              <button type="button" :class="['btn', run.classOpen ? 'btn-primary' : 'btn-ghost']" :disabled="busy || (run.classOpen && !allTrialsComplete)" @click="action(() => control(run.classOpen ? 'close' : 'open'), run.classOpen ? '操作成绩已确认' : '已重新开放扣分调整')">{{ run.classOpen ? '确认操作成绩' : '重新调整扣分' }}</button>
+              <p v-if="run.classOpen" class="wf-hint" role="status">{{ !allTrialsComplete ? `尚有 ${missingTrials.length || 1} 项子实验未完成，完成后可确认成绩。` : activeDeductions.length ? '确认后，学生可选择提交记录或申请重做。' : '本次无扣分，确认后的操作成绩为 100 分。' }}</p>
               <button v-if="run.archived && run.classOpen" type="button" class="btn btn-ghost" :disabled="busy" @click="action(() => control('return'), '已退回，学生可补采或修正后重新提交')">退回学生修改</button>
             </div>
           </div>
