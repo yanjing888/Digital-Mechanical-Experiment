@@ -381,8 +381,8 @@ public class RunService {
                 entry.put("id",fid);entry.put("angle",angle);entry.put("name",str(f.getOriginalFilename()));
                 entry.put("width",w);entry.put("height",h);entry.put("at",now());
                 entry.put("warning",Math.min(w,h)<400?"图像较小，建议补拍清晰照片":"");
-                // 同角度重传覆盖；宏观判别只保留最新一张，避免多次试传堆叠
-                List<Map<String,Object>> photos=new ArrayList<>();
+                // 保留各角度的每次采集，由用户明确移除不采用的照片。
+                List<Map<String,Object>> photos=new ArrayList<>(list(r.get("photos")));
                 photos.add(entry);
                 r.put("photos",photos);r.remove("analysis");r.remove("fractureSummary");r.remove("reference");r.put("status","collecting");save(r,a,"采集断口照片："+angle);
             } finally { reader.dispose(); }

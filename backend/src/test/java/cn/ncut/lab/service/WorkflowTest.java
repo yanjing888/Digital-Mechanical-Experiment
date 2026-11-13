@@ -242,6 +242,19 @@ class WorkflowTest {
             teaching.uploadReport(runId,a,new MockMultipartFile("file","报告.docx","application/octet-stream",out.toByteArray()));
         }
     }
+    @Test void photosKeepAllAnglesAndRepeatedShotsUntilExplicitRemoval() throws Exception {
+        for (String angle : List.of("正面", "侧面", "斜面", "补充", "正面")) {
+            runs.photo(runId,student,photo(),angle);
+        }
+        var photos=list(runs.detail(runId,mate).get("photos"));
+        assertEquals(List.of("正面", "侧面", "斜面", "补充", "正面"),photos.stream().map(p->p.get("angle")).toList());
+        String removedId=str(photos.get(1).get("id"));
+        runs.removePhoto(runId,removedId,student);
+        var remaining=list(runs.detail(runId,mate).get("photos"));
+        assertEquals(4,remaining.size());
+        assertFalse(remaining.stream().anyMatch(p->removedId.equals(p.get("id"))));
+        assertNotNull(runs.getFile(removedId,student));
+    }
     @Test void photoBeforeDataAndArchiveGuards() throws Exception {
         runs.photo(runId,student,photo(),"正面");assertEquals(1,list(runs.detail(runId,mate).get("photos")).size());
         assertThrows(ApiException.class,()->runs.archive(runId,student,body("unused",0)));

@@ -2339,3 +2339,9 @@
 .admin-teacher-form { display: grid; gap: 16px; }
 .admin-form-error { color: #b5473a; margin: 0; }
 @media (max-width: 760px) { .admin-content { min-height: 0; } }
+.task-datetime{position:relative;min-width:0}
+.task-datetime .inp{width:100%;min-width:0;box-sizing:border-box}
+.task-datetime__placeholder{position:absolute;inset:0 42px 0 14px;display:flex;align-items:center;pointer-events:none;color:#70828a;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task-datetime:not(.has-value) input::-webkit-datetime-edit{visibility:hidden}
+.task-datetime.has-value .task-datetime__placeholder{display:none}
+.task-datetime input::-webkit-calendar-picker-indicator{cursor:pointer;opacity:.75}

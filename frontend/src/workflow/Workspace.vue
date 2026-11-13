@@ -90,6 +90,14 @@ const selectedStudent = computed(() => groupReportStudents.value.find(s => s.sid
 const meta = reactive({ specimenId: '', deviceId: '', experimentAt: '', note: '' })
 let metadataBaseline = {}
 const selectionKey = `lab-run-selection-${props.teacher ? 'teacher' : `${props.sid}-${props.taskId}`}`
+const photoPreview = ref(null), photoDialog = ref(null)
+const selectedPhotoId = ref('')
+const activePhoto = computed(() => run.value?.photos?.find(p => p.id === selectedPhotoId.value) || run.value?.photos?.at(-1))
+async function previewPhoto(photo) {
+  photoPreview.value = photo
+  await nextTick()
+  photoDialog.value?.showModal()
+}
 const angle = ref('正面'), images = reactive({}), video = ref(null), camera = ref(false)
 let stream, timer, disposed = false
 const settings = ref({ catalog: [], requiredSections: [] }), showSettings = ref(false)
@@ -190,7 +198,7 @@ async function onPhotoPick(event) {
     const analyzeError = run.value?.analyzeError
     if (analyzeError) { delete run.value.analyzeError; throw new Error(analyzeError) }
     if (!run.value?.fractureSummary) throw new Error('照片已保存，断口分析暂未生成')
-  }, '已替换断口照片并完成分析') } finally { input.value = '' }
+  }, '已保存断口照片并完成分析') } finally { input.value = '' }
 }
 function goStudentNav(page) { document.querySelector(`.nav-item[data-p="${page}"]`)?.click() }
 const latestOwn = computed(() => myReports.value.filter(r => r.sid === props.sid).at(-1))
@@ -343,6 +351,7 @@ async function saveMeta() {
 async function uploadPhoto(file) {
   const prevIds = new Set((run.value?.photos || []).map(p => p.id))
   run.value = await call(`/runs/${run.value.id}/photos`, 'POST', form(file, { angle: angle.value }))
+  selectedPhotoId.value = run.value.photos.find(p => !prevIds.has(p.id))?.id || ''
   for (const id of prevIds) {
     if (!(run.value.photos || []).some(p => p.id === id)) {
       if (images[id]) { URL.revokeObjectURL(images[id]); delete images[id] }
@@ -502,7 +511,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <label v-if="tab === 'report'" class="wf-run-picker wf-teacher-bar__pick"><span>选择课次</span><select :value="run.taskId" :disabled="busy" aria-label="选择课次" @change="action(() => select(teacherTasks.find(t => t.taskId === $event.target.value).id))"><option v-for="t in teacherTasks" :key="t.taskId" :value="t.taskId">{{ t.timeText || stamp(t.createdAt) }} · {{ t.expName }}</option></select></label><label v-else-if="runs.length > 1" class="wf-run-picker wf-teacher-bar__pick"><span>选择实验小组（{{ runs.length }} 条记录）</span><select class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验小组" @change="onPickRun"><optgroup v-for="group in teacherRunGroups" :key="group.name" :label="group.name"><option v-for="item in group.items" :key="item.id" :value="item.id">{{ item.groupName }} · {{ item.members.map(m => m.name).join('、') }} · 第 {{ item.attempt }} 次</option></optgroup></select></label>
 
         </header>
-        <div v-else-if="!teacher" class="wf-student-head">
+        <div v-else-if="!teacher" class="wf-student-head" :class="{ 'wf-student-head--record': tab === 'operation' }">
           <div class="wf-student-head-main">
             <select v-if="runs.length > 1" class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验记录" @change="onPickRun"><option v-for="r in runs" :key="r.id" :value="r.id">{{ r.taskId === taskId ? '当前课次' : '历史课次' }} · {{ r.timeText || stamp(r.createdAt) }} · {{ r.expName }} · {{ r.groupName }} · 第{{ r.attempt }}次</option></select>
             <h2 v-else>{{ run.expName }} · {{ run.groupName }}</h2>
@@ -541,16 +550,31 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <h3>{{ run.trialName ? `${run.trialName} · 试件照片` : '断口照片' }}</h3>
           <div v-if="!run.archived && run.classOpen" class="wf-actions"><label>角度 <select v-model="angle"><option>正面</option><option>侧面</option><option>斜面</option><option>补充</option></select></label><button type="button" class="btn btn-primary" @click="action(startCamera)">打开摄像头</button><label class="btn btn-ghost">上传照片<input type="file" hidden accept="image/jpeg,image/png" @change="onPhotoPick"></label></div>
           <div class="wf-capture-layout"><div class="wf-capture-media"><div v-if="camera" class="camera"><video ref="video" autoplay playsinline muted></video><div class="wf-actions"><button type="button" class="btn btn-primary" :disabled="busy" @click="action(snap, '照片已保存')">拍摄并保存</button><button type="button" class="btn btn-ghost" @click="stopCamera">关闭摄像头</button></div></div>
-          <div v-if="!camera" class="photo-grid photo-grid--large"><figure v-for="p in run.photos" :key="p.id"><img :src="images[p.id]" :alt="`${p.angle}断口照片`"><figcaption>{{ p.angle }} · {{ p.width }} × {{ p.height }}<small>{{ p.warning }}</small></figcaption><div class="wf-actions"><button @click="action(() => downloadFile(p.id, p.name))">下载原图</button><button v-if="!run.archived && run.classOpen" :disabled="busy" @click="action(async () => { run = await call(`/runs/${run.id}/photos/${p.id}`, 'DELETE') }, '已移除，原文件仍保留')">不采用此图</button></div></figure></div>          <p v-if="!run.photos.length" class="wf-empty wf-empty--inline">请至少保存一张断口照片</p>
+          <div v-if="activePhoto" class="wf-photo-album">
+            <figure v-if="!camera" class="wf-photo-main">
+              <button type="button" class="wf-photo-preview" aria-label="放大当前照片" @click="previewPhoto(activePhoto)"><img :src="images[activePhoto.id]" :alt="`${activePhoto.angle}断口照片`"></button>
+              <figcaption><span>{{ activePhoto.angle }} · {{ activePhoto.width }} × {{ activePhoto.height }}<small v-if="activePhoto.warning">{{ activePhoto.warning }}</small></span><div class="wf-actions"><button type="button" @click="action(() => downloadFile(activePhoto.id, activePhoto.name))">下载原图</button><button v-if="!run.archived && run.classOpen" type="button" :disabled="busy" @click="action(async () => { run = await call(`/runs/${run.id}/photos/${activePhoto.id}`, 'DELETE') }, '已移除，原文件仍保留')">不采用此图</button></div></figcaption>
+            </figure>
+            <div class="wf-photo-strip-head"><span>已保存 {{ run.photos.length }} 张照片</span><small v-if="run.photos.length > 1">点击缩略图切换</small></div>
+            <div class="wf-photo-strip" aria-label="已保存的照片"><button v-for="(p, i) in run.photos" :key="p.id" type="button" :class="{ selected: activePhoto.id === p.id }" :aria-pressed="activePhoto.id === p.id" :aria-label="`查看第${i + 1}张${p.angle}照片`" @click="selectedPhotoId = p.id"><img :src="images[p.id]" :alt="`${p.angle}照片缩略图`"><span>{{ p.angle }} · {{ i + 1 }}</span></button></div>
+          </div>
+          <p v-if="!run.photos.length" class="wf-empty wf-empty--inline">请至少保存一张断口照片</p>
           <p v-if="busy && run.photos.length && !run.fractureSummary" class="wf-empty wf-empty--inline">正在分析断口形貌…</p>
           </div><aside class="wf-capture-result"><div v-if="run.fractureSummary" class="wf-fracture-summary">
             <h3>断口分析结论</h3>
             <p class="wf-fracture-summary__verdict">{{ run.fractureSummary.label }}</p>
 
-            <ul v-if="run.fractureSummary.evidence?.length" class="wf-fracture-evidence"><li v-for="(line, i) in run.fractureSummary.evidence" :key="i">{{ line }}</li></ul>
+            <ul v-if="run.fractureSummary.evidence?.length" class="wf-fracture-evidence"><li v-for="(line, i) in [...new Set(run.fractureSummary.evidence)]" :key="i">{{ line }}</li></ul>
             <button v-if="!run.archived && run.classOpen" type="button" class="btn btn-ghost" :disabled="busy" @click="action(runFractureAnalysis, '已更新')">重新分析</button>
           </div>
           <p v-else class="wf-empty">待采集照片</p></aside></div>
+          <dialog ref="photoDialog" class="wf-photo-dialog" aria-label="试件照片大图" @click="event => { if (event.target === photoDialog) photoDialog.close() }">
+            <template v-if="photoPreview">
+              <header><strong>{{ photoPreview.angle }} · {{ photoPreview.width }} × {{ photoPreview.height }}</strong><button type="button" class="btn btn-ghost" @click="photoDialog.close()">关闭大图</button></header>
+              <img :src="images[photoPreview.id]" :alt="`${photoPreview.angle}试件照片大图`">
+              <footer><button type="button" class="btn btn-ghost" @click="action(() => downloadFile(photoPreview.id, photoPreview.name))">下载原图</button></footer>
+            </template>
+          </dialog>
           <div v-if="isLabPage" class="wf-step-nav"><button type="button" class="btn btn-ghost" @click="prevLabStep">上一步</button><button type="button" class="btn btn-primary" :disabled="!labStepDone('capture')" @click="nextLabStep">下一步：{{ nextLabStepTitle }}</button></div>
         </section>
         <section v-if="teacher && tab === 'deduct'" class="wf-panel wf-panel--teacher-op wf-panel--deduct">
@@ -582,8 +606,8 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           </div>
         </section>
         <section v-if="isLabPage && tab === 'operation'" class="wf-panel wf-panel--student wf-panel--op-doc-wrap">
-          <ScoreConfirmation :run="run" :busy="busy" @submit="action(submitOperationRecord, '操作记录已提交')" @confirm="values => action(() => confirmScore(values), '成绩已确认')" @retake="reason => action(() => requestRetake(reason), '重做申请已提交')" />
           <OperationRecordDoc :run="run" :points="points" :images="images" :deductions="activeDeductions" :show-evaluation="false" :read-only="!!run.archived" />
+          <ScoreConfirmation :run="run" :busy="busy" @submit="action(submitOperationRecord, '操作记录已提交')" @confirm="values => action(() => confirmScore(values), '成绩已确认')" @retake="reason => action(() => requestRetake(reason), '重做申请已提交')" />
           <div v-if="missingTrials.length" class="wf-actions"><button v-for="t in missingTrials" :key="t.id" class="btn btn-ghost" @click="action(() => pickTrial(t.id))">补齐{{ t.name }}{{ !t.dataReady ? '数据' : '照片' }}</button></div>
           <div v-if="run.classOpen || run.archived" class="wf-step-nav"><button v-if="run.classOpen && !run.archived" type="button" class="btn btn-ghost" @click="goLabStep('data')">返回实验采集</button><button v-if="run.archived" type="button" class="btn btn-primary" @click="goStudentNav('s-report')">前往实验报告</button></div>
         </section>
@@ -668,8 +692,53 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
 .wf-source-picker{display:flex;align-items:end;flex-wrap:wrap;gap:12px;margin:18px 0}.wf-source-picker label{display:grid;gap:6px}.wf-source-picker select{max-width:400px}.wf-import-mapping pre{max-height:180px;overflow:auto;background:#f5f7f9}.photo-grid--large{grid-template-columns:1fr!important}.photo-grid--large figure{max-width:none!important}.photo-grid--large img{height:clamp(320px,48vh,600px)!important;object-fit:contain!important;background:#18252c;width:100%}.camera video{width:100%;max-height:60vh;object-fit:contain;background:#18252c}.wf-error-dialog{position:fixed;inset:0;background:#14263066;z-index:1000;display:grid;place-items:center}.wf-error-dialog>div{background:white;padding:28px;width:min(420px,90vw);border-radius:8px}.wf-error-dialog p{overflow-wrap:anywhere}
 </style>
 
-<style>.wf-capture-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;margin-top:20px}.wf-capture-media{min-width:0}.wf-capture-result .wf-fracture-summary{margin:0;height:100%;box-sizing:border-box}.wf-capture-layout .photo-grid{margin:0}.wf-capture-layout .photo-grid img{height:clamp(350px,50vh,560px)!important}.wf-capture-layout .camera video{height:50vh}.wf-capture-result .wf-empty{margin:0;background:#f7f9fa;padding:32px}.wf-source-picker input[type=file]{display:none}@media(max-width:900px){.wf-capture-layout{grid-template-columns:1fr}.wf-capture-layout .photo-grid img{height:360px!important}}</style>
+<style>
+.wf-capture-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:24px;margin-top:20px;align-items:start}
+.wf-capture-media{min-width:0}
+.wf-photo-album{min-width:0}
+.wf-photo-main{margin:0;border:1px solid #e0e9ec;border-radius:10px;overflow:hidden}
+.wf-photo-main .wf-photo-preview{display:block;width:100%;padding:0;border:0;background:#18252c;cursor:zoom-in}
+.wf-photo-main .wf-photo-preview img{display:block;width:100%;height:clamp(240px,32vw,360px);object-fit:contain}
+.wf-photo-main figcaption{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px;font-size:13px}
+.wf-photo-main figcaption small{display:block;color:#647980}
+.wf-photo-main .wf-actions{margin:0;gap:12px}
+.wf-photo-main .wf-actions button{border:0;background:none;color:#087c88;cursor:pointer;min-height:36px;padding:4px 0;font-size:13px}
+.wf-photo-strip-head{display:flex;justify-content:space-between;gap:12px;margin:14px 0 8px;font-size:13px;color:#52666f}
+.wf-photo-strip-head small{font-size:12px}
+.wf-photo-strip{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 8px;max-width:100%;overscroll-behavior:contain}
+.wf-photo-strip button{flex:0 0 88px;display:grid;gap:5px;padding:5px;background:#f5f8f9;border:2px solid transparent;border-radius:7px;color:#52666f;font-size:12px;cursor:pointer}
+.wf-photo-strip button.selected{border-color:#087c88;background:#edf7f8;color:#087c88}
+.wf-photo-strip img{display:block;width:74px;height:56px;object-fit:contain;background:#18252c;border-radius:3px}
+.wf-photo-preview:focus-visible,.wf-photo-strip button:focus-visible{outline:2px solid #087c88;outline-offset:2px}
+.wf-capture-result{min-width:0;position:sticky;top:20px}
+.wf-capture-result .wf-fracture-summary{margin:0;height:auto;padding:20px;box-sizing:border-box}
+.wf-capture-result .wf-fracture-evidence{max-height:320px;overflow-y:auto;overscroll-behavior:contain;padding-right:8px}
+.wf-capture-result .wf-empty{margin:0;background:#f7f9fa;padding:24px}
+.wf-capture-layout .camera video{height:min(45vh,380px)}
+.wf-source-picker input[type=file]{display:none}
+.wf-photo-dialog{width:min(1000px,calc(100vw - 32px));max-height:90vh;padding:16px;border:0;border-radius:12px;box-sizing:border-box;color:#223945;background:#fff}
+.wf-photo-dialog::backdrop{background:#142630b3}
+.wf-photo-dialog header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.wf-photo-dialog header strong{font-size:14px}
+.wf-photo-dialog>img{display:block;width:100%;height:min(65vh,700px);object-fit:contain;background:#18252c}
+.wf-photo-dialog footer{display:flex;justify-content:flex-end;margin-top:12px}
+@media(max-width:800px){.wf-capture-layout{grid-template-columns:1fr}.wf-capture-result{position:static}.wf-capture-result .wf-fracture-evidence{max-height:200px}}
+@media(max-width:520px){.wf-photo-main .wf-photo-preview img{height:240px}.wf-photo-main figcaption{align-items:flex-start;flex-direction:column;gap:2px}.wf-photo-dialog header{align-items:flex-start}.wf-photo-dialog header .btn{padding:8px}}
+</style>
 
 <style>
 .wf-classroom-overview{margin:-4px 0 24px;padding-bottom:22px;border-bottom:1px solid #e5edef}.wf-classroom-overview>header{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:14px}.wf-classroom-overview h3{margin:0}.wf-classroom-counts{display:flex;flex-wrap:wrap;gap:8px}.wf-classroom-counts span{padding:5px 9px;border-radius:5px;background:#f1f5f6;color:#52666f;font-size:12px}.wf-classroom-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.wf-classroom-group{display:grid;gap:9px;min-width:0;padding:14px;border:1px solid #dce6e9;border-radius:8px;background:#fff;color:#405766;text-align:left;font:inherit;cursor:pointer}.wf-classroom-group:hover{border-color:#90cdd2}.wf-classroom-group.active{border-color:#087c88;background:#edf8f8;box-shadow:0 0 0 1px #087c88}.wf-classroom-group__head,.wf-classroom-group__meta{display:flex;align-items:center;justify-content:space-between;gap:10px}.wf-classroom-group__head strong{color:#223945}.wf-classroom-group__head em{padding:4px 7px;border-radius:4px;background:#eef2f3;color:#647980;font-size:12px;font-style:normal;white-space:nowrap}.wf-classroom-group__head em.attention{background:#e8f4f5;color:#087c88}.wf-classroom-group__head em.warn{background:#fff4df;color:#8a5b12}.wf-classroom-group__head em.ok{background:#e9f6ee;color:#24623c}.wf-classroom-group>span:nth-child(2){overflow:hidden;color:#647980;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.wf-classroom-group__meta{justify-content:flex-start;color:#647980}.wf-classroom-group__meta small+small{padding-left:10px;border-left:1px solid #dce6e9}.wf-retake-alert{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;padding:14px 16px;border:1px solid #efd8ac;border-radius:8px;background:#fff8ea}.wf-retake-alert>div{display:grid;gap:5px}.wf-retake-alert span{color:#705527;font-size:13px}@media(max-width:700px){.wf-classroom-overview>header,.wf-retake-alert{align-items:flex-start;flex-direction:column}.wf-classroom-groups{grid-template-columns:1fr}.wf-classroom-counts{width:100%}}
+</style>
+
+<style>
+.wf-main--student .wf-student-head--record{padding:10px 16px;align-items:center}
+.wf-student-head--record .wf-student-head-main{grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px}
+.wf-student-head--record .wf-run-select{font-size:13px;padding:7px 10px;width:100%;min-width:0;box-sizing:border-box;text-overflow:ellipsis}
+.wf-student-head--record .wf-teacher-meta{font-size:12px}
+.wf-main--student .wf-panel--op-doc-wrap{padding-top:12px}
+.wf-panel--op-doc-wrap>.score-confirmation{margin:16px 0 0;padding:14px 16px;border:1px solid #e1e9ed;border-radius:8px;background:#fff}
+.wf-panel--op-doc-wrap>.score-confirmation header p{margin:0}
+.wf-panel--op-doc-wrap>.score-confirmation .score-note{margin:4px 0}
+.wf-panel--op-doc-wrap>.score-confirmation h3 strong{font-size:24px}
+@media(max-width:640px){.wf-student-head--record .wf-student-head-main{grid-template-columns:1fr;gap:4px}}
 </style>

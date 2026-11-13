@@ -994,7 +994,7 @@ export function bootApp() {
       +       '<div class="assign-fields grid-2">'
       +         '<div><label class="field-label">实验项目</label><select id="as-exp" class="inp">' + expOpts + '</select></div>'
       +         '<div style="grid-column:1/-1"><label class="field-label">本课次试验</label><div class="row">' + [['STEEL_TENS','低碳钢拉伸'],['CAST_TENS','铸铁拉伸'],['STEEL_COMP','低碳钢压缩'],['CAST_COMP','铸铁压缩']].map(function(t) { return '<label style="margin-right:18px"><input type="checkbox" name="as-trial" value="' + t[0] + '"' + (!draft.requiredTrials || draft.requiredTrials.indexOf(t[0]) >= 0 ? ' checked' : '') + '> ' + t[1] + '</label>'; }).join('') + '</div></div>'
-      +         '<div><label class="field-label">实验时间</label><input id="as-time" class="inp" value="' + esc(draft.timeText || '') + '" placeholder="时间" /></div>'
+      +         '<div><label class="field-label" for="as-time">实验时间</label><div class="task-datetime' + (draft.timeText ? ' has-value' : '') + '"><input id="as-time" type="datetime-local" step="60" required class="inp" value="' + esc((draft.timeText || '').replace(' ', 'T')) + '" /><span class="task-datetime__placeholder" aria-hidden="true">请选择实验日期和时间</span></div></div>'
       +         '<div><label class="field-label">地点</label><input id="as-place" class="inp" value="' + esc(draft.place || '') + '" placeholder="地点" /></div>'
       +         '<div><label class="field-label">备注</label><input id="as-note" class="inp" value="' + esc(draft.note || '') + '" placeholder="备注" /></div>'
       +         '<div style="grid-column:1/-1"><label class="field-label">实验说明</label>'
@@ -1793,6 +1793,16 @@ export function bootApp() {
         el.addEventListener('change', saveAssignDraft);
         el.addEventListener('input', saveAssignDraft);
       });
+      var timePicker = document.getElementById('as-time');
+      if (timePicker) {
+        function updateTimePlaceholder() { timePicker.parentElement.classList.toggle('has-value', !!timePicker.value); }
+        timePicker.addEventListener('input', updateTimePlaceholder);
+        timePicker.addEventListener('change', updateTimePlaceholder);
+        timePicker.addEventListener('click', function () {
+          if (timePicker.showPicker) { try { timePicker.showPicker(); } catch (_) {} }
+        });
+        updateTimePlaceholder();
+      }
 
       document.querySelectorAll('input[name="as-trial"], input[name="dispatch-group"]').forEach(function(el) { el.addEventListener('change', saveAssignDraft); });
       bindRosterActions('btn-dl-template', 'roster-file', saveAssignDraft, async function (result) {
@@ -1970,12 +1980,14 @@ export function bootApp() {
       var btn = document.getElementById('btn-dispatch');
       if (btn) btn.onclick = async function () {
         saveAssignDraft();
+        var experimentTime = document.getElementById('as-time');
+        if (!experimentTime.reportValidity()) return;
         var gids = Array.from(document.querySelectorAll('input[name="dispatch-group"]:checked')).map(function(el) { return el.value; });
         if (!gids.length) { await showAlert('请先完成分组后再下发'); return; }
         try {
           var r = await api.createTask({
             expId: document.getElementById('as-exp').value,
-            timeText: document.getElementById('as-time').value.trim(),
+            timeText: experimentTime.value.replace('T', ' '),
             place: document.getElementById('as-place').value.trim(),
             note: document.getElementById('as-note').value.trim(),
             tip: document.getElementById('as-tip').value.trim(),

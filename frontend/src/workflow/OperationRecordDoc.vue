@@ -1,5 +1,6 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { exportRecordWord, printRecord } from './record-export.js'
 import CurveChart from './CurveChart.vue'
 import StressStrainChart from './StressStrainChart.vue'
 import { isStressStrainTrial } from './stress-strain.js'
@@ -30,20 +31,36 @@ const operationScore = computed(() => {
   if (r.operationScore != null) return r.operationScore
   return Math.max(0, 100 - deductionTotal.value)
 })
+const paper = ref(null), zoom = ref('fit'), exporting = ref(false), exportError = ref('')
+const pendingImages = computed(() => (props.run.trialItems ? props.run.trialItems.flatMap(t => t.photos || []) : props.run.photos || []).some(photo => !props.images[photo.id]))
+async function exportRecord(format) {
+  if (exporting.value || pendingImages.value) return
+  exporting.value = true; exportError.value = ''
+  try {
+    const filename = `${props.run.expName || '实验'}-操作记录-第${props.run.attempt || 1}次${props.run.archived ? '' : '-未提交'}`
+    if (format === 'word') await exportRecordWord(paper.value, filename)
+    else await printRecord(paper.value, filename)
+  } catch (error) { exportError.value = `导出失败：${error.message || '请重试'}` }
+  finally { exporting.value = false }
+}
 </script>
 
 <template>
-  <article class="wf-op-doc" :class="{ 'wf-op-doc--readonly': readOnly }">
+  <div class="record-viewer">
+    <div class="record-viewer__toolbar">
+      <div><strong>实验记录预览</strong><span>{{ run.archived ? '已提交' : '未提交 · 预览' }}</span></div>
+      <div class="record-viewer__tools"><span v-if="pendingImages">照片加载中…</span><label>缩放 <select v-model="zoom" aria-label="文档缩放"><option value="fit">适应宽度</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.25">125%</option></select></label><button type="button" class="btn btn-ghost" :disabled="exporting || pendingImages" @click="exportRecord('word')">{{ exporting ? '正在准备…' : '下载 Word' }}</button><button type="button" class="btn btn-ghost" :disabled="exporting || pendingImages" @click="exportRecord('pdf')">打印 / PDF</button></div>
+    </div>
+    <p v-if="exportError" class="record-viewer__error" role="alert">{{ exportError }}</p>
+    <div class="record-viewer__viewport" tabindex="0" aria-label="实验记录文档，可滚动阅读">
+    <article ref="paper" class="wf-op-doc" :class="{ 'wf-op-doc--readonly': readOnly, 'wf-op-doc--zoomed': zoom !== 'fit' }" :style="zoom !== 'fit' ? { zoom: Number(zoom) } : {}">
     <header class="wf-op-doc__mast">
-      <p class="wf-op-doc__org">力 学 实 验</p>
       <h1 class="wf-op-doc__title">本课次实验操作记录</h1>
       <p class="wf-op-doc__subtitle">{{ run.expName || '力学实验' }}</p>
       <dl class="wf-op-doc__meta">
         <div><dt>实验小组</dt><dd>{{ run.groupName }} · 第 {{ run.attempt }} 次</dd></div>
         <div><dt>组员</dt><dd>{{ (run.members || []).map(m => m.name).join('、') || '—' }}</dd></div>
         <div><dt>实验时间</dt><dd>{{ run.experimentAt ? stamp(run.experimentAt) : (run.timeText || '—') }}</dd></div>
-        <div v-if="run.specimenId"><dt>试件编号</dt><dd>{{ run.specimenId }}</dd></div>
-        <div v-if="run.deviceId"><dt>设备编号</dt><dd>{{ run.deviceId }}</dd></div>
         <div><dt>记录状态</dt><dd>{{ recordState }}</dd></div>
       </dl>
     </header>
@@ -51,7 +68,7 @@ const operationScore = computed(() => {
     <template v-if="run.trialItems">
       <section v-for="(trial, index) in run.trialItems" :key="trial.id" class="wf-op-doc__section">
         <h2>{{ index + 1 }}. {{ trial.name }}</h2>
-        <p v-if="trial.specimenId || trial.deviceId" class="wf-op-doc__note">试件编号：{{ trial.specimenId || '—' }} · 设备编号：{{ trial.deviceId || '—' }} · 试验时间：{{ stamp(trial.experimentAt) }}</p>
+        <p v-if="trial.experimentAt" class="wf-op-doc__note">试验时间：{{ stamp(trial.experimentAt) }}</p>
         <template v-if="trial.data"><table class="wf-op-doc__kv"><tbody><tr><th>最大力</th><td>{{ trial.data.maxF?.toFixed?.(3) ?? trial.data.maxF }} kN</td><th>最大位移</th><td>{{ trial.data.maxD?.toFixed?.(3) ?? trial.data.maxD }} mm</td></tr></tbody></table><CurveChart :points="trial.data.points || []" :title="`${trial.name} · 力—位移曲线`" /></template>
         <p v-else class="wf-op-doc__empty">本子项尚未采集设备数据。</p>
         <StressStrainChart v-if="trial.data && isStressStrainTrial(trial.id)" :points="trial.data.points || []" :geometry="trial.geometry" />
@@ -128,14 +145,17 @@ const operationScore = computed(() => {
       <p>{{ run.archived ? `提交时间：${stamp(run.archivedAt)}` : '提交状态：待小组核对确认' }}</p>
     </footer>
   </article>
+    </div>
+  </div>
 </template>
 
 <style scoped>
 .wf-op-doc {
   box-sizing: border-box;
-  max-width: 900px;
+  width: 794px;
+  max-width: 100%;
   margin: 0 auto;
-  padding: 48px 56px;
+  padding: 24px 36px;
   background: #fff;
   border: 1px solid #d8dcdf;
   box-shadow: 0 4px 20px #24313c08;
@@ -144,11 +164,11 @@ const operationScore = computed(() => {
   font-size: 15px;
   line-height: 1.9;
 }
-.wf-op-doc__mast { text-align: center; margin-bottom: 32px; }
+.wf-op-doc__mast { text-align: center; margin-bottom: 20px; }
 .wf-op-doc__org { margin: 0 0 12px; font-size: 13px; letter-spacing: .3em; color: #555; }
-.wf-op-doc .wf-op-doc__title { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: .12em; line-height: 1.5; color: #252b30; }
-.wf-op-doc__subtitle { margin: 12px 0 28px; font-size: 18px; }
-.wf-op-doc__meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 28px; margin: 0; padding: 20px 0; border-top: 2px solid #333; border-bottom: 1px solid #777; text-align: left; font-size: 14px; }
+.wf-op-doc .wf-op-doc__title { margin: 0; font-size: 23px; font-weight: 700; letter-spacing: .04em; line-height: 1.4; color: #252b30; }
+.wf-op-doc__subtitle { margin: 4px 0 12px; font-size: 15px; }
+.wf-op-doc__meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 20px; margin: 0; padding: 10px 0; border-top: 1px solid #777; border-bottom: 1px solid #bbb; text-align: left; font-size: 13px; }
 .wf-op-doc__meta div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
 .wf-op-doc__meta dt { color: #555; }
 .wf-op-doc__meta dd { margin: 0; overflow-wrap: anywhere; }
@@ -159,7 +179,7 @@ const operationScore = computed(() => {
 .wf-op-doc table caption { padding: 0 0 10px; font-size: 14px; color: #454b50; }
 .wf-op-doc table th, .wf-op-doc table td { padding: 10px 14px; border: 0; border-bottom: 1px solid #d4d7d9; text-align: left; overflow-wrap: anywhere; }
 .wf-op-doc table th { background: #f7f7f6; color: #333; font-weight: 600; }
-.wf-op-doc__kv th { width: 40%; }
+.wf-op-doc__kv th { width: 20%; }
 .wf-op-doc__curve { margin: 24px 0 18px; }
 .wf-op-doc figcaption { text-align: center; margin-top: 10px; font-size: 13px; color: #555; }
 .wf-op-doc__photos { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px; margin-bottom: 22px; }
@@ -177,12 +197,24 @@ const operationScore = computed(() => {
 .wf-op-doc__section--tail { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 24px; padding-top: 18px; border-top: 1px solid #777; color: #555; font-size: 13px; }
 .wf-op-doc__section--tail p { margin: 0; }
 @media (max-width: 640px) {
-  .wf-op-doc { padding: 28px 18px; font-size: 14px; }
+  .wf-op-doc { padding: 20px 16px; font-size: 14px; }
   .wf-op-doc .wf-op-doc__title { font-size: 23px; letter-spacing: .05em; }
   .wf-op-doc__meta { grid-template-columns: 1fr; gap: 10px; }
   .wf-op-doc table th, .wf-op-doc table td { padding: 8px 6px; font-size: 12px; }
   .wf-op-doc__photos { grid-template-columns: minmax(0, 1fr); }
 }
+.record-viewer{min-width:0;border:1px solid #dce3e7;border-radius:10px;overflow:hidden;background:#e9edf0;font-family:inherit}
+.record-viewer__toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 16px;background:#f8fafb;border-bottom:1px solid #dce3e7}
+.record-viewer__toolbar>div:first-child{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.record-viewer__toolbar strong{font-size:14px}.record-viewer__toolbar span{font-size:12px;color:#647980}
+.record-viewer__tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.record-viewer__tools label{font-size:12px;color:#52666f}
+.record-viewer__tools select{font:inherit;padding:6px;border:1px solid #ccdadd;border-radius:5px;background:#fff;color:#223945}
+.record-viewer__tools .btn{font-size:13px;padding:7px 12px;min-height:34px;box-shadow:none;background-image:none}
+.record-viewer__viewport{height:clamp(420px,68vh,850px);overflow:auto;overscroll-behavior:contain;padding:24px;box-sizing:border-box}
+.record-viewer__viewport:focus-visible{outline:2px solid #087c88;outline-offset:-2px}
+.wf-op-doc--zoomed{max-width:none;flex-shrink:0}
+.record-viewer__error{margin:0;padding:10px 16px;color:#a33728;background:#fff0ee}
+@media(max-width:640px){.record-viewer__viewport{padding:12px 8px;height:65vh}.record-viewer__toolbar{padding:10px}.record-viewer__tools{gap:6px}.record-viewer__tools .btn{padding:6px 8px}}
 @media print {
   .wf-op-doc { max-width: none; padding: 0; border: 0; box-shadow: none; color: #000; }
   .wf-op-doc__section h2 { break-after: avoid; }

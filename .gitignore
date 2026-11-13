@@ -14,4 +14,5 @@ _make_*
 _restore/
 .vscode/
 .runtime/
+.run-logs/
 artifacts/
