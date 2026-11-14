@@ -210,7 +210,7 @@ async function exportRecord(format) {
 .record-viewer__tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.record-viewer__tools label{font-size:12px;color:#52666f}
 .record-viewer__tools select{font:inherit;padding:6px;border:1px solid #ccdadd;border-radius:5px;background:#fff;color:#223945}
 .record-viewer__tools .btn{font-size:13px;padding:7px 12px;min-height:34px;box-shadow:none;background-image:none}
-.record-viewer__viewport{height:clamp(420px,68vh,850px);overflow:auto;overscroll-behavior:contain;padding:24px;box-sizing:border-box}
+.record-viewer__viewport{height:clamp(420px,68vh,850px);overflow:auto;overscroll-behavior:auto;padding:24px;box-sizing:border-box}
 .record-viewer__viewport:focus-visible{outline:2px solid #087c88;outline-offset:-2px}
 .wf-op-doc--zoomed{max-width:none;flex-shrink:0}
 .record-viewer__error{margin:0;padding:10px 16px;color:#a33728;background:#fff0ee}
