@@ -142,7 +142,7 @@ async function exportRecord(format) {
 
     <footer class="wf-op-doc__section--tail">
       <p>实验小组：{{ run.groupName || '—' }}</p>
-      <p>{{ run.archived ? `提交时间：${stamp(run.archivedAt)}` : '提交状态：待小组核对确认' }}</p>
+      <p v-if="run.archived && run.archivedAt">提交时间：{{ stamp(run.archivedAt) }}</p>
     </footer>
   </article>
     </div>
