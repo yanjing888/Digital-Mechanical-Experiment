@@ -1,12 +1,15 @@
 const TOKEN_KEY = 'lab-platform-token'
 
 function getToken() {
-  return localStorage.getItem(TOKEN_KEY) || ''
+  // Each browser tab has its own login, retained across refreshes.
+  return sessionStorage.getItem(TOKEN_KEY) || ''
 }
 
 function setToken(t) {
-  if (t) localStorage.setItem(TOKEN_KEY, t)
-  else localStorage.removeItem(TOKEN_KEY)
+  if (t) sessionStorage.setItem(TOKEN_KEY, t)
+  else sessionStorage.removeItem(TOKEN_KEY)
+  // Discard the old shared credential instead of reusing another tab's identity.
+  localStorage.removeItem(TOKEN_KEY)
 }
 
 async function request(method, path, body) {

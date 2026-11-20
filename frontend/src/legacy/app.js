@@ -7,7 +7,7 @@ export function bootApp() {
 
   window.switchReportTab = function (tab) {
     ui.reportTab = tab;
-    localStorage.setItem(TAB_KEY, tab);
+    sessionStorage.setItem(TAB_KEY, tab);
     showPage('s-report');
   };
 
@@ -17,8 +17,8 @@ export function bootApp() {
   };
 
   var ui = {
-    page: localStorage.getItem(PAGE_KEY) || null,
-    reportTab: localStorage.getItem(TAB_KEY) || 'group',
+    page: sessionStorage.getItem(PAGE_KEY) || null,
+    reportTab: sessionStorage.getItem(TAB_KEY) || 'group',
     snap: null,
     roster: [],
     teachers: [],
@@ -867,7 +867,7 @@ export function bootApp() {
 
   function setPage(p) {
     ui.page = p;
-    localStorage.setItem(PAGE_KEY, p || '');
+    sessionStorage.setItem(PAGE_KEY, p || '');
   }
 
   /* ========== Pages ========== */
@@ -2250,7 +2250,7 @@ export function bootApp() {
           ui.snap.student = r.student;
           ui.snap.groupReport = r.groupReport;
           ui.reportTab = 'group';
-          localStorage.setItem(TAB_KEY, 'group');
+          sessionStorage.setItem(TAB_KEY, 'group');
           await showAlert('实验操作记录已生成。');
           await refreshSession();
           showPage('s-report');
@@ -2267,7 +2267,7 @@ export function bootApp() {
         var b = e.target.closest('[data-rtab]');
         if (!b) return;
         ui.reportTab = b.getAttribute('data-rtab');
-        localStorage.setItem(TAB_KEY, ui.reportTab);
+        sessionStorage.setItem(TAB_KEY, ui.reportTab);
         showPage('s-report');
       };
 
@@ -2286,7 +2286,7 @@ export function bootApp() {
           var r = await api.submitGroup();
           ui.snap.groupReport = r.groupReport;
           ui.reportTab = 'personal';
-          localStorage.setItem(TAB_KEY, 'personal');
+          sessionStorage.setItem(TAB_KEY, 'personal');
           await showAlert('实验操作记录已提交');
           showPage('s-report');
         } catch (e) { await showAlert(e.message); }
