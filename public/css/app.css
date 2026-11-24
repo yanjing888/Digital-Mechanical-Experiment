@@ -456,7 +456,7 @@
     .section-title { margin: 0 0 .7rem; font-size: 1rem; }
 
     /* 表格 — 现代交互式 */
-    .table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    .table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: .9rem; overflow-wrap: anywhere; }
     .table th {
       border-bottom: 2px solid var(--border);
       padding: .65rem .5rem; text-align: left; vertical-align: middle;

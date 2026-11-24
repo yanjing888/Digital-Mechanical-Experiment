@@ -197,6 +197,7 @@ public class StoreService {
         s.put("sid", row.get("sid"));
         s.put("name", row.get("name"));
         s.put("cls", row.get("cls"));
+        s.put("major", asStr(row.get("major"), ""));
         s.put("groupId", row.get("group_id"));
         s.put("groupName", groupName == null ? "" : groupName);
         s.put("status", row.get("status"));
@@ -328,12 +329,15 @@ public class StoreService {
                 if(passwordVault!=null)passwordVault.save(sid,sid,hash);
                 created++;
             }
+            if (row.containsKey("major")) jdbc.update("UPDATE students SET major=? WHERE sid=?", str(row.get("major")), sid);
         }
         if (imported.isEmpty()) throw new ApiException(400, "表格中没有有效学生数据");
+        Set<String> rosterScope=new LinkedHashSet<>(importedStudentIds(teacherName));
+        rosterScope.addAll(imported);
         jdbc.update("INSERT INTO workflow_settings(id,payload) VALUES(?,?) ON DUPLICATE KEY UPDATE payload=VALUES(payload)",
-                rosterBatchKey(teacherName), JsonUtil.write(Map.of("studentIds", imported)));
+                rosterBatchKey(teacherName), JsonUtil.write(Map.of("studentIds", rosterScope)));
         Map<String, Object> out = rosterResult();
-        out.put("importedStudentIds", new ArrayList<>(imported));
+        out.put("importedStudentIds", new ArrayList<>(rosterScope));
         out.put("created", created);
         out.put("updated", updated);
         return out;
@@ -429,9 +433,18 @@ public class StoreService {
 
     @Transactional
     public Map<String, Object> autoGroup(Integer size, Integer count, String mode, String prefix, String teacherName) {
+        return autoGroup(size,count,mode,prefix,teacherName,"");
+    }
+    @Transactional
+    public Map<String, Object> autoGroup(Integer size, Integer count, String mode, String prefix, String teacherName,String className) {
         String m = "even".equals(mode) ? "even" : "random";
         String pfx = (prefix == null || prefix.isBlank()) ? "第" : prefix.trim();
         List<String> imported = importedStudentIds(teacherName);
+        if(!str(className).isBlank()&&!imported.isEmpty()) {
+            String marks=String.join(",",Collections.nCopies(imported.size(),"?"));
+            List<Object> args=new ArrayList<>(imported);args.add(className);
+            imported=jdbc.queryForList("SELECT sid FROM students WHERE sid IN ("+marks+") AND COALESCE(NULLIF(cls,''),'未设置班级')=?",String.class,args.toArray());
+        }
         if (imported.isEmpty()) throw new ApiException(400, "请先导入本次学生名单，再自动分组");
         String placeholders = String.join(",", Collections.nCopies(imported.size(), "?"));
         List<Map<String, Object>> students = jdbc.queryForList(
@@ -470,7 +483,7 @@ public class StoreService {
                     + "AND NOT EXISTS (SELECT 1 FROM task_groups tg WHERE tg.group_id = lab_groups.id)", gid);
         }
         Map<String, Object> out = rosterResult();
-        out.put("importedStudentIds", imported);
+        out.put("importedStudentIds", importedStudentIds(teacherName));
         return out;
     }
 
@@ -620,6 +633,8 @@ public class StoreService {
     // ============ 任务 ============
     public List<Map<String, Object>> listTasks() {
         List<Map<String, Object>> tasks = jdbc.queryForList("SELECT * FROM tasks ORDER BY created_at DESC");
+        Map<String,String> studentClasses=new HashMap<>();
+        for(var student:jdbc.queryForList("SELECT sid,cls FROM students"))studentClasses.put(str(student.get("sid")),str(student.get("cls")));
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> t : tasks) {
             List<Map<String, Object>> gids = jdbc.queryForList("SELECT group_id FROM task_groups WHERE task_id = ?", t.get("id"));
@@ -634,11 +649,43 @@ public class StoreService {
             m.put("note", asStr(t.get("note"), ""));
             m.put("tip", asStr(t.get("tip"), ""));
             m.put("teacher", t.get("teacher"));
+            var configs=jdbc.queryForList("SELECT payload FROM task_configs WHERE task_id=?",t.get("id"));
+            var config=configs.isEmpty()?Map.<String,Object>of():JsonUtil.readMap(str(configs.get(0).get("payload")),Map.of());
+            String lessonState=str(config.getOrDefault("lessonState","active"));
+            var records = jdbc.queryForList("SELECT group_id,parent_id,payload FROM experiment_runs WHERE task_id=?", t.get("id"));
+            Map<String, String> groupNames = new LinkedHashMap<>();
+            boolean anyOpen = false;
+            for (var record : records) {
+                var payload = JsonUtil.readMap(str(record.get("payload")), Map.of());
+                anyOpen |= Boolean.TRUE.equals(payload.get("classOpen"));
+                if (record.get("parent_id") == null) {
+                    String groupId = str(record.get("group_id"));
+                    groupNames.put(groupId, str(payload.get("groupName")));
+                }
+            }
+            if(!"scheduled".equals(lessonState)) {
+                if (!records.isEmpty() && !anyOpen) lessonState = "finished";
+            }
+            m.put("lessonState",lessonState);
             m.put("createdAt", t.get("created_at"));
             m.put("groupIds", groupIds);
-            m.put("students", jdbc.queryForList(
-                    "SELECT DISTINCT rm.sid,rm.name FROM run_members rm JOIN experiment_runs r ON r.id=rm.run_id WHERE r.task_id=? AND r.parent_id IS NULL ORDER BY rm.sid", t.get("id")));
-
+            var memberships = jdbc.queryForList("SELECT DISTINCT r.group_id,rm.sid,rm.name FROM run_members rm JOIN experiment_runs r ON r.id=rm.run_id WHERE r.task_id=? AND r.parent_id IS NULL ORDER BY rm.sid", t.get("id"));
+            Map<String, Map<String, Object>> studentsById = new LinkedHashMap<>();
+            Map<String, List<Map<String, Object>>> membersByGroup = new HashMap<>();
+            for (var membership : memberships) {
+                String sid = str(membership.get("sid"));
+                String groupId = str(membership.get("group_id"));
+                var student = Map.<String, Object>of("sid", sid, "name", str(membership.get("name")),
+                        "cls", studentClasses.getOrDefault(sid, ""));
+                studentsById.putIfAbsent(sid, student);
+                groupNames.putIfAbsent(groupId, "");
+                membersByGroup.computeIfAbsent(groupId, ignored -> new ArrayList<>()).add(student);
+            }
+            m.put("students", new ArrayList<>(studentsById.values()));
+            m.put("groups", groupNames.entrySet().stream()
+                    .map(group -> Map.of("id", group.getKey(), "name", group.getValue(),
+                            "members", membersByGroup.getOrDefault(group.getKey(), List.of())))
+                    .toList());
             out.add(m);
         }
         return out;

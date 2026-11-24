@@ -25,13 +25,15 @@ public class ApiController {
     private final FractureService fracture;
     private final RosterService roster;
     private final RunService runs;
+    private final cn.ncut.lab.service.RosterAssignmentService assignments;
 
-    public ApiController(StoreService store, DifyService dify, FractureService fracture, RosterService roster, RunService runs) {
+    public ApiController(StoreService store, DifyService dify, FractureService fracture, RosterService roster, RunService runs, cn.ncut.lab.service.RosterAssignmentService assignments) {
         this.store = store;
         this.dify = dify;
         this.fracture = fracture;
         this.roster = roster;
         this.runs = runs;
+        this.assignments = assignments;
     }
 
     @GetMapping("/meta")
@@ -131,7 +133,9 @@ public class ApiController {
         if (body == null) body = Map.of();
         Integer size = body.get("size") == null ? null : toInt(body.get("size"));
         Integer count = body.get("count") == null ? null : toInt(body.get("count"));
-        return store.autoGroup(size, count, str(body.get("mode")), str(body.get("prefix")), Sessions.teacherName(req));
+        String className=str(body.get("className"));
+        if(className.isBlank())throw new ApiException(400,"请选择班级后自动分组");
+        return store.autoGroup(size, count, str(body.get("mode")), str(body.get("prefix")), Sessions.teacherName(req),className);
     }
 
     @PostMapping("/groups/ungroup")
@@ -150,6 +154,7 @@ public class ApiController {
     @org.springframework.transaction.annotation.Transactional
     public Map<String, Object> createTask(HttpServletRequest req, @RequestBody Map<String, Object> body) {
         Sessions.requireTeacher(req);
+        if (body.containsKey("studentGroups")) return assignments.assign(body, Sessions.teacherName(req));
         List<String> trials=runs.validateTrials(body.get("requiredTrials"));
         runs.preserveAssignments(strList(body.get("groupIds")));
         Map<String, Object> task = store.createTask(
@@ -163,7 +168,8 @@ public class ApiController {
         );
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("task", task);
-        runs.configureTask(str(task.get("id")),trials);
+        runs.scheduleTask(str(task.get("id")),trials);
+        task.put("lessonState","scheduled");
         runs.provision(str(task.get("id")));
         out.put("tasks", store.listTasks());
         return out;

@@ -1,5 +1,5 @@
 import { api } from '../api.js'
-import { mountWorkflow, unmountWorkflow } from '../workflow/mount.js'
+import { mountWorkflow, unmountWorkflow, mountTeacherAssignment } from '../workflow/mount.js'
 
 export function bootApp() {
   var PAGE_KEY = 'lab-platform-page';
@@ -20,7 +20,6 @@ export function bootApp() {
     page: sessionStorage.getItem(PAGE_KEY) || null,
     reportTab: sessionStorage.getItem(TAB_KEY) || 'group',
     snap: null,
-    roster: [],
     teachers: [],
     acqTimer: null,
     localPoints: null,
@@ -30,7 +29,6 @@ export function bootApp() {
     acqStartedAt: null,
     ruptureHinted: false,
     labView: null, // 'acq' | 'frac' — 采集完成后在步骤间切换
-    assignDraft: { expId: 'TENSION_COMPRESSION', timeText: '', place: '', note: '', tip: '' },
     fracStepId: 'original',
     fracBusy: false,
     fracCamStream: null,
@@ -871,185 +869,6 @@ export function bootApp() {
   }
 
   /* ========== Pages ========== */
-  function bindRosterActions(downloadId, uploadId, beforeUpload, onUploaded) {
-    var download = document.getElementById(downloadId);
-    var input = document.getElementById(uploadId);
-    if (download) download.onclick = async function () {
-      var text = download.textContent;
-      download.disabled = true;
-      download.textContent = '正在下载…';
-      try { await api.downloadRosterTemplate(); }
-      catch (e) { await showAlert(e.message); }
-      finally { download.disabled = false; download.textContent = text; }
-    };
-    if (input) input.onchange = async function () {
-      var file = input.files && input.files[0];
-      if (!file) return;
-      if (beforeUpload) beforeUpload();
-      var label = input.parentElement.firstChild;
-      var text = label.textContent;
-      input.disabled = true;
-      label.textContent = '正在导入…';
-      try {
-        var result = await api.uploadRoster(file);
-        await showAlert('已导入：新增 ' + result.created + ' 人，更新 ' + result.updated + ' 人');
-        await onUploaded(result);
-      } catch (e) { await showAlert(e.message); }
-      finally { input.disabled = false; input.value = ''; label.textContent = text; }
-    };
-  }
-
-  function applyRosterMeta(result) {
-    if (!ui.snap.meta) ui.snap.meta = {};
-    if (result.importedStudentIds) ui.snap.meta.importedStudentIds = result.importedStudentIds;
-    if (result.students) ui.snap.meta.students = result.students;
-    if (result.groups) ui.snap.meta.groups = result.groups;
-    if (result.ungrouped) ui.snap.meta.ungrouped = result.ungrouped;
-    else if (result.students) {
-      ui.snap.meta.ungrouped = result.students.filter(function (s) { return !s.groupId; });
-    }
-  }
-
-  function pageTeacherAssign() {
-    var meta = ui.snap.meta || {};
-    var tasks = ui.snap.tasks || [];
-    var importedIds = new Set(meta.importedStudentIds || []);
-    var students = (meta.students || []).filter(function (s) { return importedIds.has(s.sid); });
-    var groups = importedIds.size ? (meta.groups || []).filter(function (g) {
-      return (g.members || []).every(function (s) { return importedIds.has(s.sid); });
-    }) : [];
-    var assignedGroups = new Set(tasks.flatMap(function (t) { return t.groupIds || []; }));
-    var visibleGroupIds = new Set(groups.map(function (g) { return g.id; }));
-    var ungrouped = students.filter(function (s) {
-      return !s.groupId || (!visibleGroupIds.has(s.groupId) && !assignedGroups.has(s.groupId));
-    });
-    var pendingGroups = groups.filter(function (g) { return !assignedGroups.has(g.id); });
-    var readyGroups = pendingGroups.filter(function (g) { return (g.members || []).length > 0; });
-    var canDispatch = students.length > 0 && readyGroups.length > 0;
-    var draft = ui.assignDraft || {};
-    var exps = ASSIGN_EXPERIMENTS;
-    if (!draft.expId || !exps.some(function (e) { return e.id === draft.expId; })) draft.expId = exps[0].id;
-
-    var poolItems = ungrouped.length ? ungrouped.map(function (s) {
-      return '<label class="stu-pick">'
-        + '<input type="checkbox" class="pool-pick" value="' + esc(s.sid) + '" />'
-        + '<span><strong>' + esc(s.name) + '</strong>'
-        + '<span class="sub"> · ' + esc(s.sid) + (s.cls ? ' · ' + esc(s.cls) : '') + '</span></span>'
-        + '</label>';
-    }).join('') : '<div class="empty-soft">' + (students.length ? '本次名单已全部分组' : '请先导入本次学生名单') + '</div>';
-
-    var groupCards = pendingGroups.length ? pendingGroups.map(function (g) {
-      var members = g.members || [];
-      var memberHtml = members.length ? members.map(function (m) {
-        return '<div class="member-row">'
-          + '<span><strong>' + esc(m.name) + '</strong><span class="sub"> · ' + esc(m.sid) + (m.cls ? ' · ' + esc(m.cls) : '') + '</span></span>'
-          + '<button type="button" class="link-btn btn-ungroup-one" data-sid="' + esc(m.sid) + '">移出</button>'
-          + '</div>';
-      }).join('') : '<div class="empty-soft sm">暂无成员</div>';
-      var ready = members.length > 0;
-      return '<div class="group-card' + (ready ? ' is-ready' : '') + '" data-gid="' + esc(g.id) + '">'
-        + '<div class="group-card-head">'
-        +   '<div><h4>' + esc(g.name) + '</h4><span class="sub">' + members.length + ' 人</span></div>'
-        +   (ready ? '<label><input type="checkbox" name="dispatch-group" value="' + esc(g.id) + '"' + (!draft.groupIds || draft.groupIds.indexOf(g.id) >= 0 ? ' checked' : '') + '> 本次下发</label>' : '')
-        +   '<button type="button" class="link-btn danger btn-del-group" data-gid="' + esc(g.id) + '">删除</button>'
-        + '</div>'
-        + '<div class="group-members">' + memberHtml + '</div>'
-        + '<button type="button" class="btn btn-primary btn-sm btn-join-group" data-gid="' + esc(g.id) + '"'
-        +   (ungrouped.length ? '' : ' disabled') + '>加入本组</button>'
-        + '</div>';
-    }).join('') : '';
-
-    var groupPanelBody = pendingGroups.length
-      ? '<div class="group-list">' + groupCards + '</div>'
-      : '<div class="empty-soft">暂无待下发的小组</div>';
-
-    var expOpts = exps.map(function (e) {
-      return '<option value="' + e.id + '"' + (draft.expId === e.id ? ' selected' : '') + (e.available ? '' : ' disabled') + '>'
-        + esc(e.name) + (e.available ? '' : '（待建设）') + '</option>';
-    }).join('');
-
-    var taskRows = tasks.map(function (t) {
-      var members = t.students || [];
-      var names = members.map(function (m) { return m.name + ' ' + m.sid; }).join(' ');
-      return '<tr data-task-search="' + esc([t.expName, t.timeText, t.place, t.note, names].join(' ').toLowerCase()) + '">'
-        + '<td><strong>' + esc(t.expName) + '</strong></td>'
-        + '<td><details class="dispatch-students"><summary>' + members.length + ' 位学生 · 查看名单</summary><div class="dispatch-roster">'
-        + (members.length ? members.map(function (m) { return '<div><strong>' + esc(m.name) + '</strong><span>' + esc(m.sid) + '</span></div>'; }).join('') : '<p class="sub">暂无下发时的学生记录</p>') + '</div></details></td>'
-        + '<td>' + esc(t.timeText || '—') + '</td><td>' + esc(t.place || '—') + '</td><td>' + esc(t.note || '—') + '</td>'
-        + '<td>' + esc((t.createdAt || '').slice(0, 16).replace('T', ' ')) + '</td></tr>';
-    }).join('');
-
-    return ''
-      + '<div class="dashboard-grid assignment-layout">'
-      // 左侧主区：实验安排 + 分组管理
-      +   '<div class="dash-main">'
-      +     '<div class="card dash-card">'
-      +       '<div class="dash-card-head">'
-      +         '<h3 class="dash-card-title"><span class="title-dot"></span>实验安排</h3>'
-      +         '<div class="row roster-actions">'
-      +           '<button type="button" class="btn btn-ghost btn-sm" id="btn-dl-template">下载名单模板</button>'
-      +           '<label class="btn btn-primary btn-sm" style="cursor:pointer">上传名单<input type="file" id="roster-file" accept=".xlsx,.xls,.csv" hidden /></label>'
-      +         '</div>'
-      +       '</div>'
-      +       '<div class="assign-fields grid-2">'
-      +         '<div><label class="field-label">实验项目</label><select id="as-exp" class="inp">' + expOpts + '</select></div>'
-      +         '<div style="grid-column:1/-1"><label class="field-label">本课次试验</label><div class="row">' + [['STEEL_TENS','低碳钢拉伸'],['CAST_TENS','铸铁拉伸'],['STEEL_COMP','低碳钢压缩'],['CAST_COMP','铸铁压缩']].map(function(t) { return '<label style="margin-right:18px"><input type="checkbox" name="as-trial" value="' + t[0] + '"' + (!draft.requiredTrials || draft.requiredTrials.indexOf(t[0]) >= 0 ? ' checked' : '') + '> ' + t[1] + '</label>'; }).join('') + '</div></div>'
-      +         '<div><label class="field-label" for="as-time">实验时间</label><div class="task-datetime' + (draft.timeText ? ' has-value' : '') + '"><input id="as-time" type="datetime-local" step="60" required class="inp" value="' + esc((draft.timeText || '').replace(' ', 'T')) + '" /><span class="task-datetime__placeholder" aria-hidden="true">请选择实验日期和时间</span></div></div>'
-      +         '<div><label class="field-label">地点</label><input id="as-place" class="inp" value="' + esc(draft.place || '') + '" placeholder="地点" /></div>'
-      +         '<div><label class="field-label">备注</label><input id="as-note" class="inp" value="' + esc(draft.note || '') + '" placeholder="备注" /></div>'
-      +         '<div style="grid-column:1/-1"><label class="field-label">实验说明</label>'
-      +           '<textarea id="as-tip" class="inp" rows="3" placeholder="实验说明">' + esc(draft.tip || '') + '</textarea></div>'
-      +       '</div>'
-      +     '</div>'
-
-      +     '<div class="card dash-card">'
-      +       '<div class="dash-card-head">'
-      +         '<h3 class="dash-card-title"><span class="title-dot"></span>分组管理</h3>'
-      +         '<div class="row" style="gap:.4rem">'
-      +           '<button type="button" class="btn btn-ghost btn-sm" id="btn-auto-group"' + (students.length ? '' : ' disabled') + '>自动分组</button>'
-      +           '<button type="button" class="btn btn-ghost btn-sm" id="btn-create-group">+ 新建小组</button>'
-      +         '</div>'
-      +       '</div>'
-      +       '<div class="group-board">'
-      +         '<div class="group-pool">'
-      +           '<div class="panel-head">'
-      +             '<strong>未分组学生</strong>'
-      +             '<button type="button" class="btn btn-ghost btn-sm" id="btn-pool-toggle"' + (ungrouped.length ? '' : ' disabled') + '>全选</button>'
-      +           '</div>'
-      +           '<div id="pool-list" class="pool-scroll">' + poolItems + '</div>'
-      +         '</div>'
-      +         '<div class="group-side">'
-      +           '<div class="panel-head">'
-      +             '<strong>小组列表 · ' + pendingGroups.length + '</strong>'
-      +           '</div>'
-      +           groupPanelBody
-      +         '</div>'
-      +       '</div>'
-      +       '<div class="assign-footer">'
-      +         '<button type="button" class="btn btn-primary btn-lg" id="btn-dispatch"'
-      +         (canDispatch ? '' : ' disabled')
-      +         ' data-gids="' + esc(readyGroups.map(function (g) { return g.id; }).join(',')) + '">'
-      +         '下发实验任务</button>'
-      +       '</div>'
-      +     '</div>'
-      +   '</div>'
-
-      + '</div>'
-      + '<section class="card dash-card dispatch-history"><div class="dash-card-head"><div><h3 class="dash-card-title">已下发任务</h3></div><label class="dispatch-search">搜索记录<input id="dispatch-search" class="inp" placeholder="实验、学生姓名 / 学号、地点、备注" /></label></div>'
-      + '<div class="dispatch-table-wrap"><table class="dispatch-table"><thead><tr><th>实验项目</th><th>学生列表</th><th>实验时间</th><th>地点</th><th>备注</th><th>下发时间</th></tr></thead><tbody>' + taskRows + '</tbody></table></div>'
-      + '<p id="dispatch-empty" class="empty-soft"' + (tasks.length ? ' hidden' : '') + '>暂无匹配的下发记录</p><p class="sub" id="dispatch-count">共 ' + tasks.length + ' 条下发记录</p></section>';
-  }
-
-  function pageTeacherStudents() {
-    var students = ui.roster || [];
-    var classes = Array.from(new Set(students.map(function (s) { return s.cls || '未设置班级'; }))).sort();
-    return '<div class="row roster-actions" style="justify-content:flex-end;margin-bottom:16px"><button type="button" class="btn btn-ghost btn-sm" id="list-dl-template">下载模板</button><label class="btn btn-primary btn-sm" style="cursor:pointer">上传名单<input type="file" id="list-roster-file" accept=".xlsx,.xls,.csv" hidden /></label></div>'
-      + '<div class="card dash-card"><div class="dash-card-head"><strong>共 ' + students.length + ' 位学生</strong><div class="row" style="gap:10px"><select id="student-class-filter" class="inp"><option value="">全部班级</option>' + classes.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') + '</select><input id="student-search" class="inp" placeholder="搜索姓名或学号" /></div></div>'
-      + '<div class="dispatch-table-wrap"><table class="dispatch-table"><thead><tr><th>班级</th><th>姓名</th><th>学号</th><th>登录账号</th><th>小组</th><th>密码</th></tr></thead><tbody id="student-list-body">'
-      + students.sort(function (a, b) { return String(a.cls || '').localeCompare(String(b.cls || ''), 'zh') || String(a.sid).localeCompare(String(b.sid)); }).map(function (s) { return '<tr data-cls="' + esc(s.cls || '未设置班级') + '" data-search="' + esc((s.name + ' ' + s.sid).toLowerCase()) + '"><td>' + esc(s.cls || '未设置班级') + '</td><td><strong>' + esc(s.name) + '</strong></td><td>' + esc(s.sid) + '</td><td>' + esc(s.sid) + '</td><td>' + esc(s.groupName || '未分组') + '</td><td><div class="student-password-actions"><span class="student-password-value" hidden></span><button type="button" class="btn btn-ghost btn-sm btn-view-student-password" data-sid="' + esc(s.sid) + '" aria-expanded="false">查看密码</button><button type="button" class="btn btn-ghost btn-sm btn-reset-student" data-sid="' + esc(s.sid) + '">重置密码</button></div></td></tr>'; }).join('')
-      + '</tbody></table></div><p id="student-list-empty" class="empty-soft"' + (students.length ? ' hidden' : '') + '>暂无学生</p></div>';
-  }
-
   function pageAdminTeachers() {
     var teachers = ui.teachers || [];
     return '<section class="card dash-card admin-content"><div class="dash-card-head"><div><h3 class="dash-card-title">教师列表</h3><span class="sub">共 ' + teachers.length + ' 位</span></div><button type="button" class="btn btn-primary btn-sm" id="btn-add-teacher">新增教师</button></div><div class="dispatch-table-wrap"><table class="dispatch-table"><thead><tr><th>账号</th><th>姓名</th><th>状态</th><th>操作</th></tr></thead><tbody>'
@@ -1166,15 +985,17 @@ export function bootApp() {
   function pageStudentHome() {
     var s = stu();
     if (!s) return '<p>未找到学生</p>';
-    if (s.status === 'none') {
-      return pageHero('', '我的实验任务', '')
-        + emptyPanel('📋', '暂无实验任务', '当前还没有分配到实验任务。', '请等待教师在平台完成分组并下发任务，或使用学号重新登录确认。');
+    if (!s.taskId || s.status === 'none') {
+      return '<section class="student-waiting"><h2>暂无实验安排</h2><button type="button" class="btn btn-ghost" id="btn-refresh-task">刷新安排</button></section>';
     }
     var mateList = (ui.snap.mates || []).map(function (m) {
       return '<div class="mate-chip"><span class="mate-avatar">' + esc(m.name.charAt(0)) + '</span><span>' + esc(m.name) + ' · ' + esc(m.sid) + (m.cls ? ' · ' + esc(m.cls) : '') + '</span></div>';
     }).join('');
 
-    var cta = s.status === 'assigned'
+    var awaitingStart = s.lessonState === 'scheduled';
+    var cta = awaitingStart
+      ? '<button type="button" class="btn btn-ghost btn-lg" id="btn-refresh-task">刷新安排</button>'
+      : s.status === 'assigned'
       ? '<button type="button" class="btn btn-primary btn-lg" id="btn-start-lab">开始现场实验</button>'
       : (s.status === 'in_lab'
           ? '<button type="button" class="btn btn-primary btn-lg" id="btn-go-lab">继续实验</button>'
@@ -1189,6 +1010,7 @@ export function bootApp() {
 
     var stepNum = s.status === 'assigned' ? 1 : (s.status === 'in_lab' ? 2 : (s.status === 'lab_done' ? 3 : 4));
     var stepTitle = ['', '待开始实验', '实验进行中', '待提交报告', '已完成'][stepNum];
+    if (awaitingStart) stepTitle = '待开课';
     var stepDesc = [
       '',
       '任务已下发，准备进入实验室开始实验',
@@ -1497,12 +1319,14 @@ export function bootApp() {
     if (idx < 0) idx = phase;
     document.querySelectorAll('#nav-student .nav-item').forEach(function (btn) {
       var bi = order.indexOf(btn.getAttribute('data-p'));
+      btn.classList.toggle('hidden', bi > 0 && !s?.taskId);
       var done = bi < phase || (bi === 0 && phase > 0) || (bi === 1 && (st === 'lab_done' || st === 'submitted'));
       if (bi === 2 && st === 'submitted') done = true;
       btn.classList.toggle('done', done && bi >= 0);
       btn.classList.toggle('active', btn.getAttribute('data-p') === p);
     });
     document.querySelectorAll('#nav-student .fn-line').forEach(function (line) {
+      line.classList.toggle('hidden', !s?.taskId);
       var li = Number(line.getAttribute('data-line'));
       line.classList.toggle('on', idx > li || phase > li);
     });
@@ -1515,10 +1339,7 @@ export function bootApp() {
     }
     stopAcq();
     unmountWorkflow();
-    if (p === 't-students') {
-      try { ui.roster = (await api.rosterStudents()).students || []; }
-      catch (e) { await showAlert(e.message); return; }
-    }
+    if (ui.snap?.role === 'student' && !stu()?.taskId && (p === 's-lab' || p === 's-report')) p = 's-home';
     if (p === 'a-teachers') {
       try { ui.teachers = (await api.adminTeachers()).teachers || []; }
       catch (e) { await showAlert(e.message); return; }
@@ -1528,14 +1349,17 @@ export function bootApp() {
     document.querySelectorAll('.topnav .nav-item').forEach(function (btn) {
       btn.classList.toggle('active', btn.getAttribute('data-p') === p);
     });
+    if (p === 't-assign' || p === 't-students') {
+      var askPassword = p === 't-students' ? function() { return askInput('重置学生密码', '新密码（至少 6 位）', '', true); } : undefined;
+      mountTeacherAssignment(root, ui.snap, function(snapshot) { ui.snap = snapshot; }, askPassword);
+      return;
+    }
     if (p === 's-lab' || p === 's-report' || p === 't-grade') {
       if (ui.snap && ui.snap.role !== 'teacher') paintStudentNav(p);
       mountWorkflow(root, p, ui.snap);
       return;
     }
     var map = {
-      't-assign': pageTeacherAssign,
-      't-students': pageTeacherStudents,
       'a-teachers': pageAdminTeachers,
       't-grade': pageTeacherGrade,
       's-home': pageStudentHome,
@@ -1703,47 +1527,6 @@ export function bootApp() {
   }
 
   async function bindPage(p) {
-    if (p === 't-students') {
-      var filter = function () {
-        var cls = document.getElementById('student-class-filter').value;
-        var q = document.getElementById('student-search').value.trim().toLowerCase();
-        var visible = 0;
-        document.querySelectorAll('#student-list-body tr').forEach(function (row) {
-          var show = (!cls || row.getAttribute('data-cls') === cls) && (!q || row.getAttribute('data-search').indexOf(q) >= 0);
-          row.hidden = !show;
-          if (show) visible++;
-        });
-        document.getElementById('student-list-empty').hidden = visible > 0;
-      };
-      document.getElementById('student-class-filter').onchange = filter;
-      document.getElementById('student-search').oninput = filter;
-      bindRosterActions('list-dl-template', 'list-roster-file', null, async function () {
-        await refreshSession();
-        await showPage('t-students');
-      });
-      document.querySelectorAll('.btn-view-student-password').forEach(function (btn) {
-        btn.onclick = async function () {
-          var value = btn.parentElement.querySelector('.student-password-value');
-          if (btn.getAttribute('aria-expanded') === 'true') { value.textContent = ''; value.hidden = true; btn.textContent = '查看密码'; btn.setAttribute('aria-expanded', 'false'); return; }
-          btn.disabled = true;
-          try {
-            var result = await api.studentPassword(btn.getAttribute('data-sid'));
-            if (!result.available) { await showAlert(result.message); return; }
-            value.textContent = result.password; value.hidden = false;
-            btn.textContent = '隐藏密码'; btn.setAttribute('aria-expanded', 'true');
-          } catch (e) { await showAlert(e.message); }
-          finally { btn.disabled = false; }
-        };
-      });
-      document.querySelectorAll('.btn-reset-student').forEach(function (btn) {
-        btn.onclick = async function () {
-          var password = await askInput('重置学生密码', '新密码（至少 6 位）', '', true);
-          if (password == null) return;
-          try { await api.resetStudentPassword(btn.getAttribute('data-sid'), password); await showAlert('密码已重置'); await showPage('t-students'); }
-          catch (e) { await showAlert(e.message); }
-        };
-      });
-    }
     if (p === 'a-teachers') {
       document.getElementById('btn-add-teacher').onclick = function () {
         openModal('新增教师', '<form id="add-teacher-form" class="admin-teacher-form"><div><label class="field-label" for="new-teacher-account">教师账号</label><input id="new-teacher-account" name="username" class="inp" required autocomplete="off" /></div><div><label class="field-label" for="new-teacher-name">姓名</label><input id="new-teacher-name" name="name" class="inp" required /></div><div><label class="field-label" for="new-teacher-password">密码</label><input id="new-teacher-password" name="password" class="inp" type="password" minlength="6" required autocomplete="new-password" /></div><p id="add-teacher-error" class="admin-form-error" hidden></p></form>',
@@ -1788,235 +1571,6 @@ export function bootApp() {
         };
       });
     }
-    if (p === 't-assign') {
-      function saveAssignDraft() {
-        ui.assignDraft = {
-          groupIds: Array.from(document.querySelectorAll('input[name="dispatch-group"]:checked')).map(function(el) { return el.value; }),
-          requiredTrials: Array.from(document.querySelectorAll('input[name="as-trial"]:checked')).map(function(el) { return el.value; }),
-          expId: (document.getElementById('as-exp') || {}).value || '',
-          timeText: ((document.getElementById('as-time') || {}).value || '').trim(),
-          place: ((document.getElementById('as-place') || {}).value || '').trim(),
-          note: ((document.getElementById('as-note') || {}).value || '').trim(),
-          tip: ((document.getElementById('as-tip') || {}).value || '').trim()
-        };
-      }
-
-      ['as-exp', 'as-time', 'as-place', 'as-note', 'as-tip'].forEach(function (id) {
-        var el = document.getElementById(id);
-        if (!el) return;
-        el.addEventListener('change', saveAssignDraft);
-        el.addEventListener('input', saveAssignDraft);
-      });
-      var timePicker = document.getElementById('as-time');
-      if (timePicker) {
-        function updateTimePlaceholder() { timePicker.parentElement.classList.toggle('has-value', !!timePicker.value); }
-        timePicker.addEventListener('input', updateTimePlaceholder);
-        timePicker.addEventListener('change', updateTimePlaceholder);
-        timePicker.addEventListener('click', function () {
-          if (timePicker.showPicker) { try { timePicker.showPicker(); } catch (_) {} }
-        });
-        updateTimePlaceholder();
-      }
-
-      document.querySelectorAll('input[name="as-trial"], input[name="dispatch-group"]').forEach(function(el) { el.addEventListener('change', saveAssignDraft); });
-      bindRosterActions('btn-dl-template', 'roster-file', saveAssignDraft, async function (result) {
-        applyRosterMeta(result);
-        ui.assignDraft.groupIds = null;
-        await showPage('t-assign');
-      });
-
-      function openCreateGroupModal() {
-        saveAssignDraft();
-        var selected = Array.prototype.slice.call(document.querySelectorAll('.pool-pick:checked')).map(function (el) {
-          return el.value;
-        });
-        openModal(
-          '新建小组',
-          '<label class="field-label" for="new-group-name">小组名称</label>'
-            + '<input id="new-group-name" class="inp" placeholder="小组名称" autocomplete="off" />',
-          '<button type="button" class="btn btn-ghost" data-close>取消</button>'
-            + '<button type="button" class="btn btn-primary" id="btn-create-group-ok">确定</button>',
-          false
-        );
-        var input = document.getElementById('new-group-name');
-        if (input) {
-          input.focus();
-          input.onkeydown = function (e) {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              var okBtn = document.getElementById('btn-create-group-ok');
-              if (okBtn) okBtn.click();
-            }
-          };
-        }
-        var ok = document.getElementById('btn-create-group-ok');
-        if (ok) ok.onclick = async function () {
-          var name = ((document.getElementById('new-group-name') || {}).value || '').trim();
-          if (!name) {
-            var el = document.getElementById('new-group-name');
-            if (el) el.focus();
-            return;
-          }
-          try {
-            var r = await api.createGroup(name);
-            if (selected.length && r.group && r.group.id) {
-              r = await api.moveToGroup(r.group.id, selected);
-            }
-            applyRosterMeta(r);
-            closeModal();
-            showPage('t-assign');
-          } catch (e) { await showAlert(e.message); }
-        };
-      }
-
-      var createG = document.getElementById('btn-create-group');
-      if (createG) createG.onclick = openCreateGroupModal;
-
-      var autoG = document.getElementById('btn-auto-group');
-      if (autoG) autoG.onclick = function () {
-        saveAssignDraft();
-        openModal(
-          '自动分组',
-          '<div class="auto-group-form">'
-            + '<label class="field-label">分组方式</label>'
-            + '<div class="seg auto-mode" id="ag-basis">'
-            +   '<button type="button" data-basis="size" class="on">按每组人数</button>'
-            +   '<button type="button" data-basis="count">按小组数量</button>'
-            + '</div>'
-            + '<div style="margin-top:.55rem"><label class="field-label" id="ag-num-label">每组人数</label>'
-            +   '<input id="ag-num" class="inp" type="number" min="1" max="50" value="4" /></div>'
-            + '<label class="field-label" style="margin-top:.55rem">排序方式</label>'
-            + '<div class="seg auto-mode" id="ag-mode">'
-            +   '<button type="button" data-mode="random" class="on">随机分组</button>'
-            +   '<button type="button" data-mode="even">按名单平均</button>'
-            + '</div>'
-            + '<p class="sub" style="margin:.6rem 0 0">仅对本次导入名单中尚未下发任务的学生重新分组，其他学生和已下发的小组保持不变。</p>'
-            + '</div>',
-          '<button type="button" class="btn btn-ghost" data-close>取消</button>'
-            + '<button type="button" class="btn btn-primary" id="btn-auto-group-ok">开始分组</button>',
-          false
-        );
-        var basis = 'size';
-        var mode = 'random';
-        document.querySelectorAll('#ag-basis [data-basis]').forEach(function (b) {
-          b.onclick = function () {
-            basis = b.getAttribute('data-basis');
-            document.querySelectorAll('#ag-basis [data-basis]').forEach(function (x) { x.classList.toggle('on', x === b); });
-            var lab = document.getElementById('ag-num-label');
-            if (lab) lab.textContent = basis === 'size' ? '每组人数' : '小组数量';
-          };
-        });
-        document.querySelectorAll('#ag-mode [data-mode]').forEach(function (b) {
-          b.onclick = function () {
-            mode = b.getAttribute('data-mode');
-            document.querySelectorAll('#ag-mode [data-mode]').forEach(function (x) { x.classList.toggle('on', x === b); });
-          };
-        });
-        var ok = document.getElementById('btn-auto-group-ok');
-        if (ok) ok.onclick = async function () {
-          var num = Number((document.getElementById('ag-num') || {}).value) || 4;
-          var payload = { mode: mode };
-          if (basis === 'size') payload.size = num; else payload.count = num;
-          try {
-            var r = await api.autoGroup(payload);
-            applyRosterMeta(r);
-            ui.assignDraft.groupIds = null;
-            closeModal();
-            showPage('t-assign');
-          } catch (e) { await showAlert(e.message); }
-        };
-      };
-
-      var poolToggle = document.getElementById('btn-pool-toggle');
-      if (poolToggle) poolToggle.onclick = function () {
-        var boxes = Array.prototype.slice.call(document.querySelectorAll('.pool-pick'));
-        if (!boxes.length) return;
-        var allOn = boxes.every(function (b) { return b.checked; });
-        boxes.forEach(function (b) { b.checked = !allOn; });
-        poolToggle.textContent = allOn ? '全选' : '取消全选';
-      };
-
-      function selectedPoolSids() {
-        return Array.prototype.slice.call(document.querySelectorAll('.pool-pick:checked')).map(function (el) {
-          return el.value;
-        });
-      }
-
-      document.querySelectorAll('.btn-join-group').forEach(function (btn) {
-        btn.onclick = async function () {
-          var sids = selectedPoolSids();
-          if (!sids.length) {
-            await showAlert('请先在左侧勾选要编入的学生');
-            return;
-          }
-          saveAssignDraft();
-          try {
-            var r = await api.moveToGroup(btn.getAttribute('data-gid'), sids);
-            applyRosterMeta(r);
-            showPage('t-assign');
-          } catch (e) { await showAlert(e.message); }
-        };
-      });
-
-      document.querySelectorAll('.btn-ungroup-one').forEach(function (btn) {
-        btn.onclick = async function () {
-          saveAssignDraft();
-          try {
-            var r = await api.ungroup([btn.getAttribute('data-sid')]);
-            applyRosterMeta(r);
-            showPage('t-assign');
-          } catch (e) { await showAlert(e.message); }
-        };
-      });
-
-      document.querySelectorAll('.btn-del-group').forEach(function (btn) {
-        btn.onclick = async function () {
-          if (!(await showConfirm('删除该小组？组内学生将变为未分组。'))) return;
-          saveAssignDraft();
-          try {
-            var r = await api.deleteGroup(btn.getAttribute('data-gid'));
-            applyRosterMeta(r);
-            showPage('t-assign');
-          } catch (e) { await showAlert(e.message); }
-        };
-      });
-
-      var historySearch = document.getElementById('dispatch-search');
-      if (historySearch) historySearch.oninput = function () {
-        var query = historySearch.value.trim().toLowerCase(), count = 0;
-        document.querySelectorAll('[data-task-search]').forEach(function (row) {
-          row.hidden = !row.getAttribute('data-task-search').includes(query);
-          if (!row.hidden) count++;
-        });
-        document.getElementById('dispatch-empty').hidden = count > 0;
-        document.getElementById('dispatch-count').textContent = '共 ' + count + ' 条下发记录';
-      };
-      var btn = document.getElementById('btn-dispatch');
-      if (btn) btn.onclick = async function () {
-        saveAssignDraft();
-        var experimentTime = document.getElementById('as-time');
-        if (!experimentTime.reportValidity()) return;
-        var gids = Array.from(document.querySelectorAll('input[name="dispatch-group"]:checked')).map(function(el) { return el.value; });
-        if (!gids.length) { await showAlert('请先完成分组后再下发'); return; }
-        try {
-          var r = await api.createTask({
-            expId: document.getElementById('as-exp').value,
-            timeText: experimentTime.value.replace('T', ' '),
-            place: document.getElementById('as-place').value.trim(),
-            note: document.getElementById('as-note').value.trim(),
-            tip: document.getElementById('as-tip').value.trim(),
-            requiredTrials: Array.from(document.querySelectorAll('input[name="as-trial"]:checked')).map(function(el) { return el.value; }),
-            groupIds: gids
-          });
-          ui.snap.tasks = r.tasks;
-          ui.assignDraft = { expId: '', timeText: '', place: '', note: '', tip: '' };
-          await refreshSession();
-          await showAlert('已向 ' + gids.length + ' 个小组下发任务');
-          showPage('t-assign');
-        } catch (e) { await showAlert(e.message); }
-      };
-    }
-
     if (p === 't-grade') {
       document.querySelectorAll('[data-grade]').forEach(function (btn) {
         btn.onclick = function () { openGradeModal(btn.getAttribute('data-grade')); };
@@ -2024,6 +1578,8 @@ export function bootApp() {
     }
 
     if (p === 's-home') {
+      var refreshTask = document.getElementById('btn-refresh-task');
+      if (refreshTask) refreshTask.onclick = async function () { await refreshSession(); await showPage('s-home'); };
       var b1 = document.getElementById('btn-start-lab');
       if (b1) b1.onclick = function () { showPage('s-lab'); };
       var b2 = document.getElementById('btn-go-lab');

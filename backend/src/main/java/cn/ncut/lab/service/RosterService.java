@@ -27,6 +27,9 @@ public class RosterService {
         HEADER_MAP.put("行政班", "cls");
         HEADER_MAP.put("cls", "cls");
         HEADER_MAP.put("class", "cls");
+        HEADER_MAP.put("专业", "major");
+        HEADER_MAP.put("专业名称", "major");
+        HEADER_MAP.put("major", "major");
     }
 
     private String normalizeHeader(String h) {
@@ -67,6 +70,7 @@ public class RosterService {
                     out.put("name", name);
                     String cls = mapped.getOrDefault("cls", "");
                     out.put("cls", cls.isBlank() ? "—" : cls);
+                    if (mapped.containsKey("major")) out.put("major", mapped.get("major"));
                     rows.add(out);
                 }
             }
@@ -80,11 +84,12 @@ public class RosterService {
         try (Workbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = wb.createSheet("学生名单");
             Row header = sheet.createRow(0);
-            String[] cols = {"学号", "姓名", "班级"};
+            String[] cols = {"学号", "姓名", "专业", "班级"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             sheet.setColumnWidth(0, 14 * 256);
             sheet.setColumnWidth(1, 10 * 256);
             sheet.setColumnWidth(2, 12 * 256);
+            sheet.setColumnWidth(3, 16 * 256);
             wb.write(out);
             return out.toByteArray();
         } catch (Exception e) {

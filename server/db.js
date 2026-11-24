@@ -170,6 +170,7 @@ async function migrate() {
   await ensureColumn('teachers', 'username', 'VARCHAR(64) NULL');
   await ensureColumn('teachers', 'password_hash', 'VARCHAR(255) NULL');
   await ensureColumn('students', 'password_hash', 'VARCHAR(255) NULL');
+  await ensureColumn('students', 'major', 'VARCHAR(128) NULL');
   await ensureColumn('students', 'tip', 'TEXT NULL');
   await ensureColumn('students', 'fracture_analysis_json', 'LONGTEXT NULL');
   await ensureColumn('tasks', 'tip', 'TEXT NULL');

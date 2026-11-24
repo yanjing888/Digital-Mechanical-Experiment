@@ -17,6 +17,7 @@ const props = defineProps({
 const stamp = v => (v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '—')
 const recordState = computed(() => {
   const r = props.run
+  if (r.lessonState === 'scheduled') return '待开课'
   if (r.archived) return `已提交 · ${stamp(r.archivedAt)}`
   const complete = r.trialItems ? r.trialItems.length > 0 && r.trialItems.every(t => t.dataReady && t.photoReady) : !!r.data && !!r.photos?.length
   if (!complete) return '采集中'
@@ -175,11 +176,10 @@ async function exportRecord(format) {
 .wf-op-doc__section { margin-bottom: 36px; }
 .wf-op-doc__section h2 { display: flex; gap: 4px; margin: 0 0 18px; padding-bottom: 8px; border-bottom: 1px solid #c8cdd0; font-size: 18px; font-weight: 700; color: #252b30; }
 .wf-op-doc__num { white-space: nowrap; }
-.wf-op-doc table { width: 100%; border-collapse: collapse; font-size: 14px; border-top: 1.5px solid #555; border-bottom: 1.5px solid #555; }
+.wf-op-doc table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 14px; border-top: 1.5px solid #555; border-bottom: 1.5px solid #555; }
 .wf-op-doc table caption { padding: 0 0 10px; font-size: 14px; color: #454b50; }
 .wf-op-doc table th, .wf-op-doc table td { padding: 10px 14px; border: 0; border-bottom: 1px solid #d4d7d9; text-align: left; overflow-wrap: anywhere; }
 .wf-op-doc table th { background: #f7f7f6; color: #333; font-weight: 600; }
-.wf-op-doc__kv th { width: 20%; }
 .wf-op-doc__curve { margin: 24px 0 18px; }
 .wf-op-doc figcaption { text-align: center; margin-top: 10px; font-size: 13px; color: #555; }
 .wf-op-doc__photos { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px; margin-bottom: 22px; }

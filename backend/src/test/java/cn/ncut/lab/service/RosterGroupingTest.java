@@ -59,12 +59,12 @@ class RosterGroupingTest {
         assertEquals("shared", group("current"));
     }
 
-    @Test void latestSuccessfulImportReplacesScopeAndSurvivesServiceRestart() {
+    @Test void successiveImportsAccumulateAndSurviveServiceRestart() {
         store.importRoster(List.of(row("first")), "teacher");
         store.importRoster(List.of(row("second"), row("second")), "teacher");
-        assertEquals(List.of("second"), new StoreService(db).importedStudentIds("teacher"));
+        assertEquals(List.of("first","second"), new StoreService(db).importedStudentIds("teacher"));
         groupBatch("teacher");
-        assertNull(group("first"));
+        assertNotNull(group("first"));
         assertNotNull(group("second"));
     }
 
@@ -82,7 +82,15 @@ class RosterGroupingTest {
         assertEquals("issued", group("issued"));
         assertNotEquals("issued", group("new"));
         store.importRoster(List.of(row("issued")), "teacher");
-        assertThrows(ApiException.class, () -> groupBatch("teacher"));
+        groupBatch("teacher");
+        assertEquals("issued",group("issued"));
+    }
+    @Test void classFilteredGroupingDoesNotMoveOtherClasses() {
+        store.importRoster(List.of(row("classA"),Map.of("sid","classB","name","B","cls","B")),"teacher");
+        var result=store.autoGroup(4,null,"even","Test","teacher","A");
+        assertEquals(List.of("classA","classB"),result.get("importedStudentIds"));
+        assertNotNull(group("classA"));assertNull(group("classB"));
+        assertEquals(List.of("classA","classB"),store.importedStudentIds("teacher"));
     }
 
     @Test void regroupingOnlyMovesImportedMembersAndPreservesSharedGroup() {

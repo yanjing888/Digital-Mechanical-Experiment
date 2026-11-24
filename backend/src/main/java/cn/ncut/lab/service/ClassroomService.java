@@ -38,6 +38,7 @@ public class ClassroomService {
     public Object confirm(String id,Actor a,Map<String,Object> b) {
         if(a.teacher())throw new ApiException(403,"请由学生本人确认");
         Map<String,Object> r=runs.load(id,a,true);
+        if("scheduled".equals(r.get("lessonState")))throw new ApiException(409,"本课次尚未开始");
         if(Boolean.TRUE.equals(r.get("classOpen")))throw new ApiException(409,"教师尚未发布最终操作成绩");
         if("pending".equals(map(r.get("retakeRequest")).get("status")))throw new ApiException(409,"该组已申请重做，请等待教师处理");
         if("arranged".equals(map(r.get("retakeRequest")).get("status")))throw new ApiException(409,"教师已安排重做，请进入新的实验记录");

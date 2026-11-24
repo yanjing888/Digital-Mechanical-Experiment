@@ -30,9 +30,35 @@ public class RunService {
     public void configureTask(String taskId,List<String> trials) {
         db.update("INSERT INTO task_configs(task_id,payload) VALUES(?,?)",taskId,JsonUtil.write(Map.of("requiredTrials",trials)));
     }
+    public void scheduleTask(String taskId,List<String> trials) {
+        db.update("INSERT INTO task_configs(task_id,payload) VALUES(?,?)",taskId,JsonUtil.write(Map.of("requiredTrials",trials,"lessonState","scheduled")));
+    }
+    @Transactional
+    public Map<String,Object> startTask(String taskId,Actor actor) {
+        teacher(actor);
+        var tasks=db.queryForList("SELECT teacher FROM tasks WHERE id=?",taskId);
+        if(tasks.isEmpty())throw new ApiException(404,"课次不存在");
+        if(!actor.id().equals(str(tasks.get(0).get("teacher"))))throw new ApiException(403,"仅下发教师可开始本课次");
+        var rows=db.queryForList("SELECT payload FROM task_configs WHERE task_id=? FOR UPDATE",taskId);
+        Map<String,Object> config=rows.isEmpty()?new LinkedHashMap<>():JsonUtil.readMap(str(rows.get(0).get("payload")),new LinkedHashMap<>());
+        if(!"scheduled".equals(config.get("lessonState")))return Map.of("ok",true);
+        provision(taskId);
+        for(var row:db.queryForList("SELECT id FROM experiment_runs WHERE task_id=? AND parent_id IS NULL",taskId)) {
+            var run=load(str(row.get("id")),actor,true);
+            if(!"scheduled".equals(run.get("lessonState")))continue;
+            run.put("lessonState","active");run.put("classOpen",true);run.put("startedAt",now());
+            save(run,actor,"开始本课次实验");
+        }
+        config.put("lessonState","active");config.put("startedAt",now());
+        db.update("UPDATE task_configs SET payload=? WHERE task_id=?",JsonUtil.write(config),taskId);
+        return Map.of("ok",true);
+    }
     private void initializeClassroom(Map<String,Object> r,Map<String,Object> task) {
         var rows=db.queryForList("SELECT payload FROM task_configs WHERE task_id=?",r.get("taskId"));
-        r.put("requiredTrials",rows.isEmpty()?ExperimentCatalog.TRIAL_IDS:JsonUtil.readMap(str(rows.get(0).get("payload")),Map.of()).getOrDefault("requiredTrials",ExperimentCatalog.TRIAL_IDS));
+        Map<String,Object> config=rows.isEmpty()?Map.of():JsonUtil.readMap(str(rows.get(0).get("payload")),Map.of());
+        r.put("requiredTrials",config.getOrDefault("requiredTrials",ExperimentCatalog.TRIAL_IDS));
+        r.put("lessonState",config.getOrDefault("lessonState","active"));
+        if("scheduled".equals(r.get("lessonState")))r.put("classOpen",false);
         r.put("place",str(task.get("place")));r.put("scoreVersion",0);r.put("confirmationRequired",true);
     }
     public record Actor(boolean teacher, String id) {}
@@ -48,6 +74,7 @@ public class RunService {
         String state=!latest.isEmpty()&&!Boolean.TRUE.equals(latest.get("returned"))?"submitted":Boolean.TRUE.equals(r.get("archived"))?"lab_done":"pending".equals(r.get("status"))?"assigned":"in_lab";
         student.put("status",state);student.put("groupName",r.get("groupName"));student.put("workflowRunId",r.get("id"));student.put("requiredTrials",r.get("requiredTrials"));
         student.put("operationScore",r.get("operationScore"));student.put("personalScore",latest.get("finalScore"));student.put("personalComment",latest.get("finalComment"));
+        student.put("lessonState",r.getOrDefault("lessonState","active"));
         snapshot.put("mates",r.get("members"));
     }
     static String id() { return UUID.randomUUID().toString(); }
@@ -83,6 +110,7 @@ public class RunService {
         if(updated!=1) throw new ApiException(409,"记录已更新，请刷新后重试"); run.put("revision",revision+1);
     }
     void mutable(Map<String,Object> run) {
+        if("scheduled".equals(run.get("lessonState")))throw new ApiException(409,"本课次尚未开始，请等待教师开课");
         if(Boolean.TRUE.equals(run.get("archived"))) throw new ApiException(409,"操作记录已提交；请由教师退回后修改");
         if(!Boolean.TRUE.equals(run.get("classOpen"))) throw new ApiException(409,"教师已确认扣分；如需修改实验数据，请先联系教师重新开放记录");
     }
@@ -243,7 +271,7 @@ public class RunService {
             try {
                 Map<String,Object> r=load(str(row.get("id")),actor,false);
                 Map<String,Object> s=new LinkedHashMap<>();
-                for(String key:List.of("id","taskId","groupName","expName","expId","timeText","place","attempt","status","createdAt","members","classOpen","archived","retakeRequest","requiredTrials")) s.put(key,r.get(key));
+                for(String key:List.of("id","taskId","groupName","expName","expId","timeText","place","attempt","status","createdAt","members","classOpen","archived","retakeRequest","requiredTrials","lessonState")) s.put(key,r.get(key));
                 List<Map<String,Object>> trialItems=TrialRecords.combined(r)?TrialRecords.items(r):List.of();
                 int trialTotal=TrialRecords.combined(r)?trialItems.size():1;
                 int completedTrials=TrialRecords.combined(r)
@@ -301,7 +329,7 @@ public class RunService {
     public Map<String,Object> classroom(String id,Actor a) {
         Map<String,Object> r=load(id,a,false),out=new LinkedHashMap<>();
         ClassroomService.expose(r,a);
-        for(String key:List.of("deductions","classOpen","finalScore","finalComment","revision","archived","archivedAt","scorePublishedAt","scoreVersion","confirmationRequired","myScoreConfirmed","myConfirmation","retakeRequest"))out.put(key,r.get(key));
+        for(String key:List.of("deductions","classOpen","finalScore","finalComment","revision","archived","archivedAt","scorePublishedAt","scoreVersion","confirmationRequired","myScoreConfirmed","myConfirmation","retakeRequest","lessonState"))out.put(key,r.get(key));
         out.put("operationScore",operationScore(r));out.put("calculatedScore",calculatedScore(r));return out;
     }
     public Map<String,Object> legacy(String id,Actor a) {
@@ -449,6 +477,7 @@ public class RunService {
     public Map<String,Object> archive(String id,Actor a,Map<String,Object> b) {
         if(a.teacher())throw new ApiException(403,"请由学生本人接受成绩并提交记录");
         Map<String,Object> r=load(id,a,true);checkRevision(r,b);
+        if("scheduled".equals(r.get("lessonState")))throw new ApiException(409,"本课次尚未开始");
         if(Boolean.TRUE.equals(r.get("archived")))throw new ApiException(409,"操作记录已提交");
         if(Boolean.TRUE.equals(r.get("classOpen")))throw new ApiException(409,"请等待教师确认扣分后再提交操作记录");
         if(!str(ClassroomService.version(r)).equals(str(b.get("scoreVersion"))))throw new ApiException(409,"操作成绩已更新，请重新核对后提交");

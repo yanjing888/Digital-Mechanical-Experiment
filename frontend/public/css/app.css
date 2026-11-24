@@ -10,12 +10,23 @@
       --primary-500: #0E7C8B;
       --primary-600: #0C6A78;
       --primary-700: #0A5663;
-      --bg: #F2F5F8;
+      --bg: #EDF3F8;
+      --surface-tint: #F6F9FC;
+      --surface-header: #EAF2F8;
+      --surface-hover: #F0F6FB;
+      --surface-selected: #E2F0F5;
+      --surface-pressed: #D4E8EF;
+      --control-border: #CBD9E3;
+      --focus-ring: #367A9C;
+      --action: #256C83;
+      --action-hover: #1D5C71;
+      --action-pressed: #16495D;
+      --interaction-time: 150ms;
       --card: #FFFFFF;
       --ink: #0F1720;
       --soft: #445560;
       --muted: #5B6B78;
-      --border: #E2E8EE;
+      --border: #D9E4ED;
       --blue: #0E7C8B;
       --blue-d: #0A5663;
       --blue-s: #F0FAFB;
@@ -83,24 +94,22 @@
       display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
       height: 38px; padding: 0 16px; border-radius: 10px; border: 1px solid transparent;
       cursor: pointer; background: #fff; color: var(--ink);
-      transition: all var(--dur) var(--ease);
+      transition: background-color var(--interaction-time), border-color var(--interaction-time), color var(--interaction-time);
       font-weight: 500;
       position: relative;
       overflow: hidden;
     }
-    .btn::before {
-      content: ""; position: absolute; inset: 0;
-      background: linear-gradient(135deg, rgba(255,255,255,.2), transparent);
-      opacity: 0; transition: opacity var(--dur) var(--ease);
-    }
-    .btn:hover::before { opacity: 1; }
-    .btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
-    .btn:active { transform: translateY(0); box-shadow: var(--shadow); }
     .btn:disabled { opacity: .5; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
-    .btn-primary { background: var(--grad-blue); color: #fff; box-shadow: var(--shadow-blue); }
-    .btn-primary:hover { box-shadow: var(--shadow-blue-lg); }
-    .btn-ghost { border-color: var(--border); background: #fff; color: var(--soft); }
-    .btn-ghost:hover { border-color: var(--primary-200); background: var(--primary-50); color: var(--primary-700); }
+    .btn-primary { background: var(--action); color: #fff; }
+    .btn-primary:not(:disabled):hover { background: var(--action-hover); }
+    .btn-primary:not(:disabled):active { background: var(--action-pressed); }
+    .btn-ghost {
+      border-color: var(--control-border);
+      background: var(--surface-header);
+      color: var(--action-pressed);
+    }
+    .btn-ghost:not(:disabled):hover { border-color: #95BBCB; background: var(--surface-pressed); }
+    .btn-ghost:not(:disabled):active { border-color: #79A9BD; background: #BDDDE9; }
     .btn-sm { height: 32px; padding: 0 12px; font-size: .82rem; border-radius: 8px; }
     .btn-danger { background: #fff; border-color: #fecaca; color: var(--danger); }
     .btn-danger:hover { background: #fef2f2; border-color: var(--danger); }
@@ -311,7 +320,7 @@
     /* App shell — 现代导航 + 科技感 */
     .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
     .topbar {
-      flex-shrink: 0; background: var(--grad-topbar);
+      flex-shrink: 0; background: #fff;
       border-bottom: 1px solid var(--border);
       display: grid; grid-template-columns: minmax(200px, 1.1fr) auto minmax(180px, 1fr);
       align-items: center; gap: .85rem; padding: .5rem clamp(1rem, 2.5vw, 2rem); min-height: 60px;
@@ -340,25 +349,25 @@
     }
     .topbar .who { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .topbar .linkish {
-      background: #EEF2F4; border: 0; color: var(--soft);
+      background: var(--surface-header); border: 0; color: var(--soft);
       border-radius: 8px; padding: .35rem .7rem; cursor: pointer;
       transition: all var(--dur) var(--ease);
     }
-    .topbar .linkish:hover { background: #DDE4E9; color: var(--ink); transform: translateY(-1px); }
+    .topbar .linkish:hover { background: var(--surface-selected); color: var(--action-hover); }
     .topnav { display: flex; align-items: center; gap: .35rem; justify-content: center; }
     .topnav.hidden { display: none !important; }
     .nav-item {
-      border: 0; background: transparent; color: var(--soft); cursor: pointer;
+      border: 1px solid transparent; background: transparent; color: var(--soft); cursor: pointer;
       border-radius: 10px; padding: .45rem .95rem; font-size: .88rem; white-space: nowrap;
       transition: all var(--dur) var(--ease);
       position: relative;
     }
-    .nav-item:hover { background: #EEF2F4; color: var(--ink); }
+    .nav-item:hover { background: var(--surface-hover); color: var(--action-hover); }
     .nav-item.active {
-      background: var(--primary-50); color: var(--primary-700); font-weight: 600;
-      border: 1px solid var(--primary-100);
-      box-shadow: 0 2px 8px rgba(14,124,139,.08);
+      background: var(--surface-selected); color: var(--action-pressed); font-weight: 600;
+      border-color: #C5E0E9;
     }
+    .nav-item:active, .topbar .linkish:active { background: var(--surface-pressed); }
     /* Student flow as sequential steps */
     .flow-nav { display: flex; align-items: center; gap: 0; }
     .flow-nav .nav-item {
@@ -384,11 +393,6 @@
     .main {
       flex: 1; overflow: auto; min-width: 0; min-height: 0;
       background-color: var(--bg);
-      background-image:
-        linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
-        linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-      background-size: 32px 32px;
-      background-attachment: local;
       padding: 1.25rem clamp(1rem, 2.5vw, 2rem) 1.25rem;
     }
     .stage {
@@ -2347,3 +2351,33 @@
 .task-datetime input::-webkit-calendar-picker-indicator{cursor:pointer;opacity:.75}
 .student-password-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:190px}
 .student-password-value{overflow-wrap:anywhere;white-space:pre-wrap;max-width:240px;color:#223945;user-select:all}
+.student-waiting{padding:28px;background:white;border:1px solid #e1e9ed;border-radius:10px}.student-waiting h2{margin:0;font-size:22px}.student-waiting p{color:#647980;margin-bottom:0}
+
+.student-waiting{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+/* Use the table width evenly across all columns, including selection and actions. */
+:where(#pages) table { width: 100%; table-layout: fixed; }
+:where(#pages) :is(th, td) { overflow-wrap: anywhere; }
+
+:is(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+#pages :is(.dispatch-table, .records-table-wrap table, .desk-table table, .gradebook table, .report-history table) thead th {
+  background: var(--surface-header);
+}
+#pages :is(.dispatch-table, .records-table-wrap table, .desk-table table, .gradebook table, .report-history table) tbody tr:hover > td {
+  background-color: var(--surface-hover);
+}
+
+.app :is(.inp, .workflow input, .workflow select, .workflow textarea):not(:disabled):hover {
+  border-color: #95BBCB;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app, .app *, .app *::before, .app *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

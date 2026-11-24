@@ -90,6 +90,7 @@ export const api = {
   changePassword: (payload) => request('POST', '/account/password', payload),
   session: () => request('GET', '/session'),
   createTask: (payload) => request('POST', '/tasks', payload),
+  startTask: (id) => request('POST', '/workflow/tasks/' + encodeURIComponent(id) + '/start', {}),
   downloadRosterTemplate: downloadTemplate,
   uploadRoster: (file) => upload('/roster/upload', file),
   rosterStudents: () => request('GET', '/roster/students'),

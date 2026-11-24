@@ -71,6 +71,30 @@ class WorkflowTest {
         db.execute("ALTER TABLE students ADD cls VARCHAR(64) DEFAULT '土木一班'");
         runs.provision("task");runId=str(runs.runs(student).get(0).get("id"));
     }
+    @Test void scheduledTasksAreViewableButCannotCollectUntilOwnerStartsAllGroups() throws Exception {
+        db.execute("ALTER TABLE tasks ADD teacher VARCHAR(64)");
+        db.update("INSERT INTO tasks(id,exp_id,exp_name,time_text,teacher) VALUES('future','TENS','材料拉伸','下周',?)",teacher.id());
+        db.update("INSERT INTO task_groups VALUES('future','g1'),('future','g2')");
+        db.update("UPDATE students SET task_id='future'");
+        runs.scheduleTask("future",List.of("STEEL_TENS"));runs.provision("future");
+        String future=RunService.runIdFor("future","g1");
+        assertEquals("scheduled",runs.detail(future,student).get("lessonState"));
+        assertEquals(false,runs.detail(future,student).get("classOpen"));
+        assertEquals(409,assertThrows(ApiException.class,()->runs.photo(future,student,photo(),"正面")).getStatus());
+        assertEquals(409,assertThrows(ApiException.class,()->runs.importData(future,student,csv(),2,1,0,"N")).getStatus());
+        assertEquals(409,assertThrows(ApiException.class,()->classroom.confirm(future,student,Map.of("scoreVersion",0))).getStatus());
+        assertEquals(403,assertThrows(ApiException.class,()->runs.startTask("future",student)).getStatus());
+        assertEquals(403,assertThrows(ApiException.class,()->runs.startTask("future",new Actor(true,"其他教师"))).getStatus());
+        runs.startTask("future",teacher);
+        assertEquals("active",runs.detail(future,student).get("lessonState"));
+        assertEquals(true,runs.detail(RunService.runIdFor("future","g2"),outsider).get("classOpen"));
+        runs.photo(future,student,photo(),"正面");
+        int revision=((Number)runs.detail(future,student).get("revision")).intValue();
+        runs.startTask("future",teacher);
+        assertEquals(revision,runs.detail(future,student).get("revision"));
+        assertEquals(1,list(runs.detail(future,student).get("photos")).size());
+        assertEquals(true,runs.detail(runId,student).get("classOpen"));
+    }
     @Test void scoreConfirmationBelongsToEachStudentAndExpiresAfterCorrection() throws Exception {
         legacyArchive();configure();
         assertEquals(409,assertThrows(ApiException.class,()->classroom.confirm(runId,student,Map.of("scoreVersion",0))).getStatus());

@@ -118,12 +118,14 @@ const classroomRuns = computed(() => {
   return runs.value.filter(item => item.taskId === taskId).sort((a, b) => priority(a) - priority(b) || String(a.groupName).localeCompare(String(b.groupName), 'zh-CN'))
 })
 const classroomCounts = computed(() => ({
+  scheduled: classroomRuns.value.filter(item => item.lessonState === 'scheduled').length,
   submitted: classroomRuns.value.filter(item => item.archived).length,
   grading: classroomRuns.value.filter(item => item.collectionComplete && item.classOpen).length,
   published: classroomRuns.value.filter(item => item.collectionComplete && !item.classOpen && !item.archived).length,
-  collecting: classroomRuns.value.filter(item => !item.collectionComplete).length,
+  collecting: classroomRuns.value.filter(item => item.lessonState !== 'scheduled' && !item.collectionComplete).length,
 }))
 function classroomState(item) {
+  if (item.lessonState === 'scheduled') return { text: '待开课', kind: '' }
   if (item.retakeRequest?.status === 'pending') return { text: '申请重做', kind: 'warn' }
   if (!item.collectionComplete) return { text: '实验进行中', kind: '' }
   if (item.classOpen) return { text: '待确认扣分', kind: 'attention' }
@@ -151,6 +153,7 @@ function labStepDone(id) {
   return false
 }
 function suggestLabStep() {
+  if (run.value?.lessonState === 'scheduled') return 'data'
   if (run.value?.trialItems) {
     const incomplete = run.value.trialItems.find(t => !t.dataReady || !t.photoReady)
     if (!incomplete) return 'operation'
@@ -420,7 +423,7 @@ watch(tab, async value => {
   if (props.teacher && (value === 'record' || value === 'deduct')) {
     try {
       const fresh = await call(`/runs/${run.value.id}/classroom`)
-      for (const key of ['deductions', 'operationScore', 'calculatedScore', 'classOpen', 'finalScore', 'finalComment', 'archived', 'archivedAt']) {
+      for (const key of ['deductions', 'operationScore', 'calculatedScore', 'classOpen', 'lessonState', 'finalScore', 'finalComment', 'archived', 'archivedAt']) {
         if (fresh[key] !== undefined) run.value[key] = fresh[key]
       }
     } catch { /* ignore */ }
@@ -461,7 +464,7 @@ onMounted(() => {
       }
       if (props.teacher) run.value.revision = fresh.revision
       // Only refresh classroom facts; do not overwrite in-progress student input or its revision.
-      for (const key of ['deductions', 'operationScore', 'calculatedScore', 'classOpen', 'finalScore', 'finalComment', 'archived', 'archivedAt', 'scorePublishedAt', 'scoreVersion', 'myScoreConfirmed', 'myConfirmation', 'retakeRequest']) run.value[key] = fresh[key]
+      for (const key of ['deductions', 'operationScore', 'calculatedScore', 'classOpen', 'lessonState', 'finalScore', 'finalComment', 'archived', 'archivedAt', 'scorePublishedAt', 'scoreVersion', 'myScoreConfirmed', 'myConfirmation', 'retakeRequest']) run.value[key] = fresh[key]
     } catch { /* Background refresh never disrupts in-progress input. */ }
   }, 5000)
 })
@@ -506,7 +509,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <div class="wf-teacher-bar__main">
             <h2>{{ run.expName }} · {{ tab === 'report' ? (run.timeText || stamp(run.createdAt)) : `${run.groupName} · 第 ${run.attempt} 次` }}</h2>
             <p v-if="tab !== 'report'" class="wf-teacher-members">{{ run.members.map(m => `${m.name}${m.cls ? '（' + m.cls + '）' : ''}`).join('、') }}</p>
-            <p v-if="tab !== 'report'" class="wf-teacher-members">操作分 {{ run.operationScore ?? run.calculatedScore }} 分 · {{ run.classOpen ? '扣分待确认' : '扣分已确认' }} · {{ run.archived ? '记录已提交' : '记录未提交' }}<span v-if="run.trialItems"> · 子实验 {{ completedTrialCount }} / {{ run.trialItems.length }} 项完成</span></p>
+            <p v-if="tab !== 'report'" class="wf-teacher-members">操作分 {{ run.operationScore ?? run.calculatedScore }} 分 · {{ run.lessonState === 'scheduled' ? '待开课' : run.classOpen ? '扣分待确认' : '扣分已确认' }} · {{ run.archived ? '记录已提交' : '记录未提交' }}<span v-if="run.trialItems"> · 子实验 {{ completedTrialCount }} / {{ run.trialItems.length }} 项完成</span></p>
           </div>
           <label v-if="tab === 'report'" class="wf-run-picker wf-teacher-bar__pick"><span>选择课次</span><select :value="run.taskId" :disabled="busy" aria-label="选择课次" @change="action(() => select(teacherTasks.find(t => t.taskId === $event.target.value).id))"><option v-for="t in teacherTasks" :key="t.taskId" :value="t.taskId">{{ t.timeText || stamp(t.createdAt) }} · {{ t.expName }}</option></select></label><label v-else-if="runs.length > 1" class="wf-run-picker wf-teacher-bar__pick"><span>选择实验小组（{{ runs.length }} 条记录）</span><select class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验小组" @change="onPickRun"><optgroup v-for="group in teacherRunGroups" :key="group.name" :label="group.name"><option v-for="item in group.items" :key="item.id" :value="item.id">{{ item.groupName }} · {{ item.members.map(m => m.name).join('、') }} · 第 {{ item.attempt }} 次</option></optgroup></select></label>
 
@@ -518,7 +521,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
             <span class="wf-teacher-meta">第 {{ run.attempt }} 次 · {{ run.members.map(m => `${m.name}${m.cls ? '（' + m.cls + '）' : ''}`).join('、') }}</span>
           </div>
         </div>
-        <section v-if="isLabPage && run.trialItems && tab !== 'operation'" class="wf-lesson-progress" aria-label="本课次实验进度">
+        <section v-if="isLabPage && run.lessonState !== 'scheduled' && run.trialItems && tab !== 'operation'" class="wf-lesson-progress" aria-label="本课次实验进度">
           <div class="wf-lesson-progress__main">
             <div><strong>本课次实验进度</strong><span>{{ completedTrialCount }} / {{ run.trialItems.length }} 项完成</span></div>
             <div class="wf-lesson-progress__track" role="progressbar" :aria-valuenow="completedTrialCount" aria-valuemin="0" :aria-valuemax="run.trialItems.length"><i :style="{ width: `${completedTrialCount / run.trialItems.length * 100}%` }"></i></div>
@@ -529,13 +532,14 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
             <span v-else>还需完成 {{ missingTrials.length }} 项子实验</span>
           </div>
         </section>
-        <nav v-if="run.trialItems && isLabPage && tab !== 'operation'" class="wf-trial-nav" aria-label="试验子项">
+        <nav v-if="run.trialItems && isLabPage && run.lessonState !== 'scheduled' && tab !== 'operation'" class="wf-trial-nav" aria-label="试验子项">
           <button v-for="item in run.trialItems" :key="item.id" type="button" :class="{ active: run.trialId === item.id }" :disabled="busy" @click="action(() => pickTrial(item.id))"><strong>{{ item.name }}</strong><small>{{ item.dataReady && item.photoReady ? '采集完成' : item.dataReady || item.photoReady ? '采集中' : '待采集' }}</small></button>
         </nav>
-        <nav v-if="isLabPage && tab !== 'operation'" class="wf-stepper" aria-label="现场实验步骤">
+        <section v-if="isLabPage && run.lessonState === 'scheduled'" class="wf-panel wf-panel--student wf-waiting"><h3>待开课</h3><button type="button" class="btn btn-ghost" :disabled="busy" @click="refreshLab">刷新</button></section>
+        <nav v-if="isLabPage && run.lessonState !== 'scheduled' && tab !== 'operation'" class="wf-stepper" aria-label="现场实验步骤">
           <button v-for="(s, i) in labSteps" :key="s.id" type="button" class="wf-step" :class="{ active: tab === s.id, done: labStepDone(s.id) }" @click="goLabStep(s.id)"><span class="wf-step-num">{{ i + 1 }}</span><span class="wf-step-title">{{ s.title }}</span></button>
         </nav>
-        <section v-if="isLabPage && tab === 'data'" class="wf-panel wf-panel--student">
+        <section v-if="isLabPage && run.lessonState !== 'scheduled' && tab === 'data'" class="wf-panel wf-panel--student">
           <div class="wf-group-reports-head wf-data-head"><h3>{{ run.trialName ? `${run.trialName} · 数据采集` : '数据采集' }}</h3><div class="wf-actions"><span v-if="run.data" class="tag">已采集</span><button v-if="!run.archived && run.classOpen" type="button" class="btn btn-primary" :disabled="busy" @click="action(syncWanceData)">{{ busy ? '正在采集…' : '自动采集' }}</button></div></div>
           <p v-if="busy && !run.data" class="wf-empty wf-empty--inline">正在读取试验数据…</p>
           <div v-else-if="run.data" class="wf-data wf-data--linked">
@@ -546,7 +550,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <p v-else class="wf-empty wf-empty--inline">{{ run.archived ? '暂无试验数据' : '尚未采集数据' }}</p>
           <div v-if="isLabPage" class="wf-step-nav"><button type="button" class="btn btn-primary" :disabled="busy || !labStepDone('data')" @click="nextLabStep">下一步：{{ nextLabStepTitle }}</button></div>
         </section>
-        <section v-if="isLabPage && tab === 'capture'" class="wf-panel wf-panel--student">
+        <section v-if="isLabPage && run.lessonState !== 'scheduled' && tab === 'capture'" class="wf-panel wf-panel--student">
           <h3>{{ run.trialName ? `${run.trialName} · 试件照片` : '断口照片' }}</h3>
           <div v-if="!run.archived && run.classOpen" class="wf-actions"><label>角度 <select v-model="angle"><option>正面</option><option>侧面</option><option>斜面</option><option>补充</option></select></label><button type="button" class="btn btn-primary" @click="action(startCamera)">打开摄像头</button><label class="btn btn-ghost">上传照片<input type="file" hidden accept="image/jpeg,image/png" @change="onPhotoPick"></label></div>
           <div class="wf-capture-layout"><div class="wf-capture-media"><div v-if="camera" class="camera"><video ref="video" autoplay playsinline muted></video><div class="wf-actions"><button type="button" class="btn btn-primary" :disabled="busy" @click="action(snap, '照片已保存')">拍摄并保存</button><button type="button" class="btn btn-ghost" @click="stopCamera">关闭摄像头</button></div></div>
@@ -581,7 +585,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <section v-if="classroomRuns.length > 1" class="wf-classroom-overview" aria-label="本课次小组进度">
             <header>
               <h3>本课次小组</h3>
-              <div class="wf-classroom-counts"><span>实验中 {{ classroomCounts.collecting }}</span><span>待确认扣分 {{ classroomCounts.grading }}</span><span>待学生选择 {{ classroomCounts.published }}</span><span>记录已提交 {{ classroomCounts.submitted }}</span></div>
+              <div class="wf-classroom-counts"><span v-if="classroomCounts.scheduled">待开课 {{ classroomCounts.scheduled }}</span><span>实验中 {{ classroomCounts.collecting }}</span><span>待确认扣分 {{ classroomCounts.grading }}</span><span>待学生选择 {{ classroomCounts.published }}</span><span>记录已提交 {{ classroomCounts.submitted }}</span></div>
             </header>
             <div class="wf-classroom-groups">
               <button v-for="item in classroomRuns" :key="item.id" type="button" class="wf-classroom-group" :class="{ active: item.id === run.id }" :disabled="busy" @click="action(() => select(item.id))">
@@ -594,18 +598,19 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <div v-if="run.retakeRequest?.status === 'pending'" class="wf-retake-alert"><div><strong>学生申请重做</strong><span>{{ run.retakeRequest.reason }}</span></div><button type="button" class="btn btn-ghost" @click="tab = 'retake'">处理重做</button></div>
           <div class="wf-classroom-bar">
             <div class="wf-actions wf-classroom-bar__actions">
-              <button type="button" :class="['btn', run.classOpen ? 'btn-primary' : 'btn-ghost']" :disabled="busy || (run.classOpen && !allTrialsComplete)" @click="action(() => control(run.classOpen ? 'close' : 'open'), run.classOpen ? '操作成绩已确认' : '已重新开放扣分调整')">{{ run.classOpen ? '确认操作成绩' : '重新调整扣分' }}</button>
+              <button v-if="run.lessonState === 'scheduled'" type="button" class="btn btn-primary" :disabled="busy" @click="action(async () => { await call(`/tasks/${run.taskId}/start`, 'POST'); await select(run.id); await listRuns() })">开始本课次</button>
+              <button v-else type="button" :class="['btn', run.classOpen ? 'btn-primary' : 'btn-ghost']" :disabled="busy || (run.classOpen && !allTrialsComplete)" @click="action(() => control(run.classOpen ? 'close' : 'open'), run.classOpen ? '操作成绩已确认' : '已重新开放扣分调整')">{{ run.classOpen ? '确认操作成绩' : '重新调整扣分' }}</button>
               <button v-if="run.archived && run.classOpen" type="button" class="btn btn-ghost" :disabled="busy" @click="action(() => control('return'), '已退回，学生可补采或修正后重新提交')">退回学生修改</button>
             </div>
           </div>
-          <div class="wf-deduct-layout">
+          <div v-if="run.lessonState !== 'scheduled'" class="wf-deduct-layout">
             <div class="wf-deduct-form">
               <fieldset :disabled="busy"><p v-if="!run.classOpen" class="wf-message error">操作成绩已发布，如需修改请先重新开放评分。</p><div v-if="!settings.catalogConfirmed" class="wf-message error wf-deduction-setup"><div><strong>请先确认扣分项和分值</strong></div><button type="button" class="btn btn-ghost" @click="showSettings = true">去配置</button></div><div v-if="settings.catalogConfirmed" class="wf-deduction-heading"><div><h3>记录本次扣分</h3></div><button type="button" class="wf-text-button" @click="showSettings = true">编辑扣分项</button></div><div class="wf-checks"><label v-for="item in settings.catalog" :key="item.id"><input v-model="deduction.items" type="checkbox" :value="item.id" :disabled="!run.classOpen"> {{ item.label }}（{{ item.points }}分）</label></div><label>扣分依据<textarea v-model="deduction.reason" rows="3" placeholder="例如：第 2 组在设备运行中尝试打开保护罩，已现场提醒。"></textarea></label><label>撤销扣分时的说明<textarea v-model="controlReason" rows="2" placeholder="仅撤销明细时使用"></textarea></label><button class="btn btn-primary" :disabled="!run.classOpen || !settings.catalogConfirmed" @click="action(async () => { run = await call(`/runs/${run.id}/deductions`, 'POST', { ...deduction, revision: run.revision }); deduction.items = []; deduction.reason = ''; await listRuns() }, '保存本次扣分')">保存本次扣分</button></fieldset>
             </div>
             <section class="wf-deduction-records" aria-label="本次课堂扣分记录"><h3>已记录扣分</h3><p v-if="!run.deductions.length" class="wf-empty wf-empty--inline">暂无扣分记录</p><div v-else class="wf-table-wrap wf-table-wrap--tall"><table><thead><tr><th>项目</th><th>分值</th><th>依据</th><th></th></tr></thead><tbody><tr v-for="d in run.deductions" :key="d.id" :class="{ voided: d.voided }"><td>{{ d.label }}<small>{{ stamp(d.at) }}</small></td><td>{{ d.voided ? '已撤销' : `-${d.points}` }}</td><td>{{ d.reason || '—' }}</td><td><button v-if="!d.voided" type="button" class="btn btn-ghost" :disabled="busy" @click="action(async () => { run = await call(`/runs/${run.id}/deductions/${d.id}/void`, 'POST', { revision: run.revision, reason: controlReason }) }, '已撤销')">撤销</button></td></tr></tbody></table></div></section>
           </div>
         </section>
-        <section v-if="isLabPage && tab === 'operation'" class="wf-panel wf-panel--student wf-panel--op-doc-wrap">
+        <section v-if="isLabPage && run.lessonState !== 'scheduled' && tab === 'operation'" class="wf-panel wf-panel--student wf-panel--op-doc-wrap">
           <OperationRecordDoc :run="run" :points="points" :images="images" :deductions="activeDeductions" :show-evaluation="false" :read-only="!!run.archived" />
           <ScoreConfirmation :run="run" :busy="busy" @submit="action(submitOperationRecord, '操作记录已提交')" @confirm="values => action(() => confirmScore(values), '成绩已确认')" @retake="reason => action(() => requestRetake(reason), '重做申请已提交')" />
           <div v-if="missingTrials.length" class="wf-actions"><button v-for="t in missingTrials" :key="t.id" class="btn btn-ghost" @click="action(() => pickTrial(t.id))">补齐{{ t.name }}{{ !t.dataReady ? '数据' : '照片' }}</button></div>

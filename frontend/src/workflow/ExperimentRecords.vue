@@ -105,7 +105,6 @@ onUnmounted(() => { generation++; clearImages() })
 .records-table-wrap table{width:100%;min-width:1100px;border-collapse:collapse;font-size:14px}
 .records-table-wrap th,.records-table-wrap td{text-align:left;vertical-align:top;padding:13px 12px;border:1px solid #d5dfe6;background:#fff;line-height:1.6}
 .records-table-wrap th{background:#edf2f6;color:#2c4351;font-weight:600;white-space:nowrap}
-.records-table-wrap td:first-child{min-width:115px}
 .records-table-wrap tr:hover td{background:#f5f9fc}
 .records-table-wrap .records-number{text-align:right;font-variant-numeric:tabular-nums}
 .records-table-wrap th:last-child,.records-table-wrap td:last-child{position:sticky;right:0;background:#fff;border-left:1px solid #c9d6df;text-align:center}

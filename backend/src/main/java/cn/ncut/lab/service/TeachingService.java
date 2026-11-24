@@ -80,6 +80,7 @@ public class TeachingService {
     @Transactional
     public Object control(String id,Actor a,Map<String,Object> b) {
         teacher(a);Map<String,Object> r=runs.load(id,a,true);runs.checkRevision(r,b);
+        if("scheduled".equals(r.get("lessonState")))throw new ApiException(409,"请先开始本课次实验");
         String action=str(b.get("action"));
         String reason=switch (action) {
             case "close" -> reasonOrDefault(b.get("reason"), "教师结束课堂记录");

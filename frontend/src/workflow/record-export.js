@@ -30,7 +30,9 @@ async function raster(node) {
 }
 
 export async function exportRecordWord(element, filename) {
-  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, ImageRun, WidthType, AlignmentType } = await import('docx')
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, ImageRun, WidthType, TableLayoutType, AlignmentType } = await import('docx')
+  const pageWidth = 11906
+  const sideMargin = 1000
   const text = node => node.textContent.replace(/\s+/g, ' ').trim()
   const paragraph = (value, options = {}) => new Paragraph({ children: [new TextRun({ text: value, font: '宋体', size: 22 })], spacing: { after: 120, line: 320 }, ...options })
   async function blocks(node) {
@@ -42,8 +44,23 @@ export async function exportRecordWord(element, filename) {
       return [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 160 }, children: [new ImageRun({ type: 'png', data: picture.data, transformation: { width: Math.round(picture.width * scale), height: Math.round(picture.height * scale) } })] })]
     }
     if (tag === 'table') {
-      const rows = [...node.querySelectorAll('tr')].map(row => new TableRow({ children: [...row.cells].map(cell => new TableCell({ children: [paragraph(text(cell))] })) }))
-      return rows.length ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows }), paragraph('')] : []
+      const sourceRows = [...node.rows]
+      if (!sourceRows.length) return []
+      const columnCount = Math.max(...sourceRows.map(row => [...row.cells].reduce((count, cell) => count + cell.colSpan, 0)))
+      if (!columnCount) return []
+      const columnWidth = Math.floor((pageWidth - 2 * sideMargin) / columnCount)
+      const rows = sourceRows.map(row => new TableRow({
+        children: [...row.cells].map(cell => new TableCell({
+          children: [paragraph(text(cell))],
+          columnSpan: cell.colSpan,
+        })),
+      }))
+      return [new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        layout: TableLayoutType.FIXED,
+        columnWidths: Array(columnCount).fill(columnWidth),
+        rows,
+      }), paragraph('')]
     }
     if (tag === 'dl') return [...node.children].map(row => paragraph([...row.children].map(text).join('：')))
     if (/^h[1-6]$/.test(tag)) return [new Paragraph({ children: [new TextRun({ text: text(node), bold: true, font: '宋体', size: tag === 'h1' ? 32 : 26 })], spacing: { before: 200, after: 140 }, keepNext: true })]
@@ -52,7 +69,7 @@ export async function exportRecordWord(element, filename) {
     for (const child of node.children) result.push(...await blocks(child))
     return result
   }
-  const document = new Document({ sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 850, bottom: 850, left: 1000, right: 1000 } } }, children: await blocks(element) }] })
+  const document = new Document({ sections: [{ properties: { page: { size: { width: pageWidth, height: 16838 }, margin: { top: 850, bottom: 850, left: sideMargin, right: sideMargin } } }, children: await blocks(element) }] })
   const blob = await Packer.toBlob(document)
   const url = URL.createObjectURL(blob), link = window.document.createElement('a')
   link.href = url; link.download = filename + '.docx'; link.click()

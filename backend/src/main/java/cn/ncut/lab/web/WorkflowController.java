@@ -38,6 +38,7 @@ public class WorkflowController {
         Map<String,Object> s=Sessions.get(req); boolean teacher="teacher".equals(s.get("role"));
         return new RunService.Actor(teacher,String.valueOf(s.get(teacher?"teacher_name":"student_id")).trim());
     }
+    @PostMapping("/tasks/{id}/start") public Object startTask(HttpServletRequest q,@PathVariable String id) { return runs.startTask(id,actor(q)); }
     @GetMapping("/runs") public Object list(HttpServletRequest q) { return runs.runs(actor(q)); }
     @GetMapping("/lab-status") public Object labStatus(HttpServletRequest q) {
         RunService.Actor a=actor(q);
