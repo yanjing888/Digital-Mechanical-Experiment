@@ -3,15 +3,17 @@ package cn.ncut.lab.service;
 import cn.ncut.lab.web.ApiException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import java.nio.file.Path;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.springframework.test.util.ReflectionTestUtils;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class RosterGroupingTest {
     private JdbcTemplate db;
     private StoreService store;
+    @TempDir Path directory;
 
     @BeforeEach void setup() {
         db = new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID()
@@ -21,7 +23,6 @@ class RosterGroupingTest {
         db.execute("CREATE TABLE task_groups(task_id VARCHAR(64),group_id VARCHAR(64))");
         db.execute("CREATE TABLE workflow_settings(id VARCHAR(32) PRIMARY KEY,payload LONGTEXT)");
         store = new StoreService(db);
-        ReflectionTestUtils.setField(store, "studentDefaultPassword", "123456");
         db.update("INSERT INTO lab_groups VALUES('old','Historical'),('issued','Issued'),('shared','Shared')");
         db.update("INSERT INTO students(sid,name,cls,group_id) VALUES('old','Old','A','old'),('issued','Issued','A','issued'),('outside','Outside','A','shared'),('current','Current','A','shared')");
         db.update("INSERT INTO task_groups VALUES('task','issued')");
@@ -30,6 +31,21 @@ class RosterGroupingTest {
     private Map<String,String> row(String sid) { return Map.of("sid", sid, "name", sid, "cls", "A"); }
     private String group(String sid) { return db.queryForObject("SELECT group_id FROM students WHERE sid=?", String.class, sid); }
     private void groupBatch(String teacher) { store.autoGroup(4, null, "even", "Test", teacher); }
+
+    @Test void newStudentsUseOwnStudentIdAndReimportPreservesChangedPasswords() {
+        var vault=new StudentPasswordVault(db,directory.resolve("student-password.key").toString());store.setPasswordVault(vault);
+        store.importRoster(List.of(row("2026010001"),row("2026010002")), "teacher");
+        String first=db.queryForObject("SELECT password_hash FROM students WHERE sid='2026010001'",String.class);
+        String second=db.queryForObject("SELECT password_hash FROM students WHERE sid='2026010002'",String.class);
+        assertTrue(cn.ncut.lab.util.PasswordUtil.verify("2026010001",first));
+        assertEquals("2026010001",vault.reveal("2026010001",first).orElseThrow());
+        assertTrue(cn.ncut.lab.util.PasswordUtil.verify("2026010002",second));
+        assertFalse(cn.ncut.lab.util.PasswordUtil.verify("2026010001",second));
+        String changed=cn.ncut.lab.util.PasswordUtil.hash("NewPassword123");
+        db.update("UPDATE students SET password_hash=? WHERE sid='2026010001'",changed);
+        store.importRoster(List.of(row("2026010001")), "teacher");
+        assertEquals(changed,db.queryForObject("SELECT password_hash FROM students WHERE sid='2026010001'",String.class));
+    }
 
     @Test void singleStudentImportDoesNotGroupHistoricalStudents() {
         store.importRoster(List.of(row("new")), "teacher");

@@ -15,4 +15,5 @@ _restore/
 .vscode/
 .runtime/
 .run-logs/
+**/student-password.key
 artifacts/

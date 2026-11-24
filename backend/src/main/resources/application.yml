@@ -30,9 +30,6 @@ dify:
   api-key: ${DIFY_API_KEY:}
   grading-api-key: ${DIFY_GRADING_API_KEY:}
 
-app:
-  student-default-password: ${STUDENT_DEFAULT_PASSWORD:123456}
-
 # 万测 TestPilot：每次采集都会重新读取外部配置文件，目录可运行时修改。
 lab:
   wance:

@@ -2345,3 +2345,5 @@
 .task-datetime:not(.has-value) input::-webkit-datetime-edit{visibility:hidden}
 .task-datetime.has-value .task-datetime__placeholder{display:none}
 .task-datetime input::-webkit-calendar-picker-indicator{cursor:pointer;opacity:.75}
+.student-password-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:190px}
+.student-password-value{overflow-wrap:anywhere;white-space:pre-wrap;max-width:240px;color:#223945;user-select:all}

@@ -60,6 +60,7 @@
       </nav>
       <div class="meta">
         <span class="who" id="top-who">—</span>
+        <StudentAccountMenu />
         <button type="button" class="linkish" id="btn-logout">退出</button>
       </div>
     </header>
@@ -83,6 +84,7 @@
 <script setup>
 import { onMounted } from 'vue'
 import { bootApp } from './legacy/app.js'
+import StudentAccountMenu from './StudentAccountMenu.vue'
 
 onMounted(() => {
   bootApp()

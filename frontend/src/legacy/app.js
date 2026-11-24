@@ -1046,7 +1046,7 @@ export function bootApp() {
     return '<div class="row roster-actions" style="justify-content:flex-end;margin-bottom:16px"><button type="button" class="btn btn-ghost btn-sm" id="list-dl-template">下载模板</button><label class="btn btn-primary btn-sm" style="cursor:pointer">上传名单<input type="file" id="list-roster-file" accept=".xlsx,.xls,.csv" hidden /></label></div>'
       + '<div class="card dash-card"><div class="dash-card-head"><strong>共 ' + students.length + ' 位学生</strong><div class="row" style="gap:10px"><select id="student-class-filter" class="inp"><option value="">全部班级</option>' + classes.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') + '</select><input id="student-search" class="inp" placeholder="搜索姓名或学号" /></div></div>'
       + '<div class="dispatch-table-wrap"><table class="dispatch-table"><thead><tr><th>班级</th><th>姓名</th><th>学号</th><th>登录账号</th><th>小组</th><th>密码</th></tr></thead><tbody id="student-list-body">'
-      + students.sort(function (a, b) { return String(a.cls || '').localeCompare(String(b.cls || ''), 'zh') || String(a.sid).localeCompare(String(b.sid)); }).map(function (s) { return '<tr data-cls="' + esc(s.cls || '未设置班级') + '" data-search="' + esc((s.name + ' ' + s.sid).toLowerCase()) + '"><td>' + esc(s.cls || '未设置班级') + '</td><td><strong>' + esc(s.name) + '</strong></td><td>' + esc(s.sid) + '</td><td>' + esc(s.sid) + '</td><td>' + esc(s.groupName || '未分组') + '</td><td><button type="button" class="btn btn-ghost btn-sm btn-reset-student" data-sid="' + esc(s.sid) + '">重置密码</button></td></tr>'; }).join('')
+      + students.sort(function (a, b) { return String(a.cls || '').localeCompare(String(b.cls || ''), 'zh') || String(a.sid).localeCompare(String(b.sid)); }).map(function (s) { return '<tr data-cls="' + esc(s.cls || '未设置班级') + '" data-search="' + esc((s.name + ' ' + s.sid).toLowerCase()) + '"><td>' + esc(s.cls || '未设置班级') + '</td><td><strong>' + esc(s.name) + '</strong></td><td>' + esc(s.sid) + '</td><td>' + esc(s.sid) + '</td><td>' + esc(s.groupName || '未分组') + '</td><td><div class="student-password-actions"><span class="student-password-value" hidden></span><button type="button" class="btn btn-ghost btn-sm btn-view-student-password" data-sid="' + esc(s.sid) + '" aria-expanded="false">查看密码</button><button type="button" class="btn btn-ghost btn-sm btn-reset-student" data-sid="' + esc(s.sid) + '">重置密码</button></div></td></tr>'; }).join('')
       + '</tbody></table></div><p id="student-list-empty" class="empty-soft"' + (students.length ? ' hidden' : '') + '>暂无学生</p></div>';
   }
 
@@ -1721,11 +1721,25 @@ export function bootApp() {
         await refreshSession();
         await showPage('t-students');
       });
+      document.querySelectorAll('.btn-view-student-password').forEach(function (btn) {
+        btn.onclick = async function () {
+          var value = btn.parentElement.querySelector('.student-password-value');
+          if (btn.getAttribute('aria-expanded') === 'true') { value.textContent = ''; value.hidden = true; btn.textContent = '查看密码'; btn.setAttribute('aria-expanded', 'false'); return; }
+          btn.disabled = true;
+          try {
+            var result = await api.studentPassword(btn.getAttribute('data-sid'));
+            if (!result.available) { await showAlert(result.message); return; }
+            value.textContent = result.password; value.hidden = false;
+            btn.textContent = '隐藏密码'; btn.setAttribute('aria-expanded', 'true');
+          } catch (e) { await showAlert(e.message); }
+          finally { btn.disabled = false; }
+        };
+      });
       document.querySelectorAll('.btn-reset-student').forEach(function (btn) {
         btn.onclick = async function () {
           var password = await askInput('重置学生密码', '新密码（至少 6 位）', '', true);
           if (password == null) return;
-          try { await api.resetStudentPassword(btn.getAttribute('data-sid'), password); await showAlert('密码已重置'); }
+          try { await api.resetStudentPassword(btn.getAttribute('data-sid'), password); await showAlert('密码已重置'); await showPage('t-students'); }
           catch (e) { await showAlert(e.message); }
         };
       });
@@ -2548,6 +2562,9 @@ export function bootApp() {
     await refreshSession();
     var isTea = ui.snap.role === 'teacher';
     var isAdmin = ui.snap.role === 'admin';
+    document.getElementById('top-who').classList.toggle('hidden', !isTea && !isAdmin);
+    document.getElementById('btn-logout').classList.toggle('hidden', !isTea && !isAdmin);
+    window.dispatchEvent(new CustomEvent('lab-account-changed', { detail: ui.snap }));
     document.getElementById('screen-login').classList.add('hidden');
     document.getElementById('screen-app').classList.remove('hidden');
     document.getElementById('nav-teacher').classList.toggle('hidden', !isTea);
@@ -2595,6 +2612,7 @@ export function bootApp() {
     try { await api.logout(); } catch (_) {}
     api.setToken('');
     setPage(null);
+    window.dispatchEvent(new CustomEvent('lab-account-changed', { detail: null }));
     document.getElementById('screen-app').classList.add('hidden');
     document.getElementById('screen-login').classList.remove('hidden');
     var foot = document.getElementById('app-foot');

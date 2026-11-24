@@ -3,8 +3,8 @@ package cn.ncut.lab.service;
 import cn.ncut.lab.util.JsonUtil;
 import cn.ncut.lab.util.PasswordUtil;
 import cn.ncut.lab.web.ApiException;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,9 +22,10 @@ import java.util.*;
 public class StoreService {
 
     private final JdbcTemplate jdbc;
+    private StudentPasswordVault passwordVault;
 
-    @Value("${app.student-default-password:123456}")
-    private String studentDefaultPassword;
+    @Autowired(required=false)
+    public void setPasswordVault(StudentPasswordVault passwordVault) { this.passwordVault=passwordVault; }
 
     public StoreService(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -307,7 +308,6 @@ public class StoreService {
     @Transactional
     public Map<String, Object> importRoster(List<Map<String, String>> rows, String teacherName) {
         if (rows == null || rows.isEmpty()) throw new ApiException(400, "表格中没有有效学生数据");
-        String defaultHash = PasswordUtil.hash(studentDefaultPassword);
         int created = 0, updated = 0;
         Set<String> imported = new LinkedHashSet<>();
         for (Map<String, String> row : rows) {
@@ -322,8 +322,10 @@ public class StoreService {
                 jdbc.update("UPDATE students SET name = ?, cls = ? WHERE sid = ?", name, cls, sid);
                 updated++;
             } else {
+                String hash=PasswordUtil.hash(sid);
                 jdbc.update("INSERT INTO students (sid, name, cls, group_id, password_hash, status, personal_json, acq_json) "
-                        + "VALUES (?, ?, ?, NULL, ?, 'none', '{}', '{\"points\":[],\"t0\":null}')", sid, name, cls, defaultHash);
+                        + "VALUES (?, ?, ?, NULL, ?, 'none', '{}', '{\"points\":[],\"t0\":null}')", sid, name, cls, hash);
+                if(passwordVault!=null)passwordVault.save(sid,sid,hash);
                 created++;
             }
         }
