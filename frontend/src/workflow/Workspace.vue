@@ -103,6 +103,8 @@ let stream, timer, disposed = false
 const settings = ref({ catalog: [], requiredSections: [] }), showSettings = ref(false)
 const deduction = reactive({ items: [], reason: '' }), grade = reactive({ score: 100, comment: '', reason: '' })
 const controlReason = ref('')
+const pendingDeductionPoints = computed(() => (settings.value.catalog || [])
+  .filter(item => deduction.items.includes(item.id)).reduce((total, item) => total + Number(item.points || 0), 0))
 const reportGrades = reactive({}), reportPreview = ref(''), requestId = ref(newId())
 const myDraft = computed(() => run.value?.drafts?.[props.sid])
 const myReports = computed(() => run.value?.reports || [])
@@ -507,9 +509,10 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
         <template v-if="run && (!teacher || !showSettings)">
         <header v-if="teacher && tab !== 'grades' && tab !== 'record'" class="wf-teacher-bar">
           <div class="wf-teacher-bar__main">
-            <h2>{{ run.expName }} · {{ tab === 'report' ? (run.timeText || stamp(run.createdAt)) : `${run.groupName} · 第 ${run.attempt} 次` }}</h2>
-            <p v-if="tab !== 'report'" class="wf-teacher-members">{{ run.members.map(m => `${m.name}${m.cls ? '（' + m.cls + '）' : ''}`).join('、') }}</p>
-            <p v-if="tab !== 'report'" class="wf-teacher-members">操作分 {{ run.operationScore ?? run.calculatedScore }} 分 · {{ run.lessonState === 'scheduled' ? '待开课' : run.classOpen ? '扣分待确认' : '扣分已确认' }} · {{ run.archived ? '记录已提交' : '记录未提交' }}<span v-if="run.trialItems"> · 子实验 {{ completedTrialCount }} / {{ run.trialItems.length }} 项完成</span></p>
+            <h2>{{tab === 'deduct' ? '现场扣分' : run.expName + ' · ' + (tab === 'report' ? (run.timeText || stamp(run.createdAt)) : `${run.groupName} · 第 ${run.attempt} 次`)}}</h2>
+            <p v-if="tab === 'deduct'" class="wf-teacher-members">{{run.expName}} · {{run.timeText || stamp(run.createdAt)}}<template v-if="run.place"> · {{run.place}}</template></p>
+            <p v-if="tab !== 'report' && tab !== 'deduct'" class="wf-teacher-members">{{ run.members.map(m => `${m.name}${m.cls ? '（' + m.cls + '）' : ''}`).join('、') }}</p>
+            <p v-if="tab !== 'report' && tab !== 'deduct'" class="wf-teacher-members">操作分 {{ run.operationScore ?? run.calculatedScore }} 分 · {{ run.lessonState === 'scheduled' ? '待开课' : run.classOpen ? '扣分待确认' : '扣分已确认' }} · {{ run.archived ? '记录已提交' : '记录未提交' }}<span v-if="run.trialItems"> · 子实验 {{ completedTrialCount }} / {{ run.trialItems.length }} 项完成</span></p>
           </div>
           <label v-if="tab === 'report'" class="wf-run-picker wf-teacher-bar__pick"><span>选择课次</span><select :value="run.taskId" :disabled="busy" aria-label="选择课次" @change="action(() => select(teacherTasks.find(t => t.taskId === $event.target.value).id))"><option v-for="t in teacherTasks" :key="t.taskId" :value="t.taskId">{{ t.timeText || stamp(t.createdAt) }} · {{ t.expName }}</option></select></label><label v-else-if="runs.length > 1" class="wf-run-picker wf-teacher-bar__pick"><span>选择实验小组（{{ runs.length }} 条记录）</span><select class="wf-run-select" :value="run.id" :disabled="busy" aria-label="选择实验小组" @change="onPickRun"><optgroup v-for="group in teacherRunGroups" :key="group.name" :label="group.name"><option v-for="item in group.items" :key="item.id" :value="item.id">{{ item.groupName }} · {{ item.members.map(m => m.name).join('、') }} · 第 {{ item.attempt }} 次</option></optgroup></select></label>
 
@@ -582,32 +585,45 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <div v-if="isLabPage" class="wf-step-nav"><button type="button" class="btn btn-ghost" @click="prevLabStep">上一步</button><button type="button" class="btn btn-primary" :disabled="!labStepDone('capture')" @click="nextLabStep">下一步：{{ nextLabStepTitle }}</button></div>
         </section>
         <section v-if="teacher && tab === 'deduct'" class="wf-panel wf-panel--teacher-op wf-panel--deduct">
-          <section v-if="classroomRuns.length > 1" class="wf-classroom-overview" aria-label="本课次小组进度">
+          <section class="wf-classroom-overview" aria-label="本课次小组进度">
             <header>
-              <h3>本课次小组</h3>
+              <h3>本课次小组 <small>{{classroomRuns.length}} 组</small></h3>
               <div class="wf-classroom-counts"><span v-if="classroomCounts.scheduled">待开课 {{ classroomCounts.scheduled }}</span><span>实验中 {{ classroomCounts.collecting }}</span><span>待确认扣分 {{ classroomCounts.grading }}</span><span>待学生选择 {{ classroomCounts.published }}</span><span>记录已提交 {{ classroomCounts.submitted }}</span></div>
             </header>
             <div class="wf-classroom-groups">
-              <button v-for="item in classroomRuns" :key="item.id" type="button" class="wf-classroom-group" :class="{ active: item.id === run.id }" :disabled="busy" @click="action(() => select(item.id))">
+              <button v-for="item in classroomRuns" :key="item.id" type="button" class="wf-classroom-group" :class="{ active: item.id === run.id }" :aria-pressed="item.id === run.id" :disabled="busy" @click="action(() => select(item.id))">
                 <span class="wf-classroom-group__head"><strong>{{ item.groupName }}</strong><span>{{ classroomState(item).text }}</span></span>
                 <span>{{ item.members.map(m => m.name).join('、') }}</span>
                 <span class="wf-classroom-group__meta"><small>子实验 {{ item.completedTrials || 0 }}/{{ item.trialTotal || 1 }}</small><small v-if="item.archived">操作分 {{ item.operationScore }}</small></span>
               </button>
             </div>
           </section>
+          <div class="wf-deduct-workspace">
           <div v-if="run.retakeRequest?.status === 'pending'" class="wf-retake-alert"><div><strong>学生申请重做</strong><span>{{ run.retakeRequest.reason }}</span></div><button type="button" class="btn btn-ghost" @click="tab = 'retake'">处理重做</button></div>
           <div class="wf-classroom-bar">
+            <div class="wf-deduct-context"><span>当前记录小组</span><h3>{{run.groupName}} <small>第 {{run.attempt}} 次实验</small></h3><p>{{run.members.map(member => member.name).join('、')}}</p></div>
+            <div class="wf-deduct-score"><span>当前操作分</span><strong>{{run.operationScore ?? run.calculatedScore}}<small> / 100</small></strong><span>{{run.lessonState === 'scheduled' ? '待开课' : run.classOpen ? '扣分待确认' : '成绩已发布'}}</span></div>
             <div class="wf-actions wf-classroom-bar__actions">
               <button v-if="run.lessonState === 'scheduled'" type="button" class="btn btn-primary" :disabled="busy" @click="action(async () => { await call(`/tasks/${run.taskId}/start`, 'POST'); await select(run.id); await listRuns() })">开始本课次</button>
               <button v-else type="button" :class="['btn', run.classOpen ? 'btn-primary' : 'btn-ghost']" :disabled="busy || (run.classOpen && !allTrialsComplete)" @click="action(() => control(run.classOpen ? 'close' : 'open'), run.classOpen ? '操作成绩已确认' : '已重新开放扣分调整')">{{ run.classOpen ? '确认操作成绩' : '重新调整扣分' }}</button>
               <button v-if="run.archived && run.classOpen" type="button" class="btn btn-ghost" :disabled="busy" @click="action(() => control('return'), '已退回，学生可补采或修正后重新提交')">退回学生修改</button>
             </div>
+            <p v-if="run.lessonState !== 'scheduled' && run.classOpen && !allTrialsComplete" class="wf-deduct-progress-note">子实验 {{completedTrialCount}} / {{run.trialItems?.length || 1}} 项完成，全部采集完成后可确认操作成绩。</p>
           </div>
           <div v-if="run.lessonState !== 'scheduled'" class="wf-deduct-layout">
             <div class="wf-deduct-form">
-              <fieldset :disabled="busy"><p v-if="!run.classOpen" class="wf-message error">操作成绩已发布，如需修改请先重新开放评分。</p><div v-if="!settings.catalogConfirmed" class="wf-message error wf-deduction-setup"><div><strong>请先确认扣分项和分值</strong></div><button type="button" class="btn btn-ghost" @click="showSettings = true">去配置</button></div><div v-if="settings.catalogConfirmed" class="wf-deduction-heading"><div><h3>记录本次扣分</h3></div><button type="button" class="wf-text-button" @click="showSettings = true">编辑扣分项</button></div><div class="wf-checks"><label v-for="item in settings.catalog" :key="item.id"><input v-model="deduction.items" type="checkbox" :value="item.id" :disabled="!run.classOpen"> {{ item.label }}（{{ item.points }}分）</label></div><label>扣分依据<textarea v-model="deduction.reason" rows="3" placeholder="例如：第 2 组在设备运行中尝试打开保护罩，已现场提醒。"></textarea></label><label>撤销扣分时的说明<textarea v-model="controlReason" rows="2" placeholder="仅撤销明细时使用"></textarea></label><button class="btn btn-primary" :disabled="!run.classOpen || !settings.catalogConfirmed" @click="action(async () => { run = await call(`/runs/${run.id}/deductions`, 'POST', { ...deduction, revision: run.revision }); deduction.items = []; deduction.reason = ''; await listRuns() }, '保存本次扣分')">保存本次扣分</button></fieldset>
+              <fieldset :disabled="busy">
+                <p v-if="!run.classOpen" class="wf-message">操作成绩已发布，如需修改请先重新开放评分。</p>
+                <div v-if="!settings.catalogConfirmed" class="wf-message error wf-deduction-setup"><strong>请先确认扣分项和分值</strong><button type="button" class="btn btn-ghost" @click="showSettings = true">去配置</button></div>
+                <div class="wf-deduction-heading"><div><h3>记录本次扣分</h3><p>勾选扣分项，填写现场情况后保存。</p></div><button type="button" class="wf-text-button" @click="showSettings = true">编辑扣分项</button></div>
+                <div class="wf-checks"><label v-for="item in settings.catalog" :key="item.id" :class="{ 'is-checked': deduction.items.includes(item.id) }"><input v-model="deduction.items" type="checkbox" :value="item.id" :disabled="!run.classOpen || !settings.catalogConfirmed"><span>{{item.label}}</span><strong>−{{item.points}} 分</strong></label></div>
+                <label class="wf-deduct-reason">扣分依据<textarea v-model="deduction.reason" :disabled="!run.classOpen" rows="3" placeholder="填写具体操作、发生情况及现场提醒，便于学生核对。"></textarea></label>
+                <div class="wf-deduct-save"><span>已选 {{deduction.items.length}} 项 · 本次扣 <strong>{{pendingDeductionPoints}}</strong> 分</span><button type="button" class="btn btn-primary" :disabled="!run.classOpen || !settings.catalogConfirmed || !deduction.items.length" @click="action(async () => { run = await call(`/runs/${run.id}/deductions`, 'POST', { ...deduction, revision: run.revision }); deduction.items = []; deduction.reason = ''; await listRuns() }, '保存本次扣分')">保存本次扣分</button></div>
+              </fieldset>
             </div>
-            <section class="wf-deduction-records" aria-label="本次课堂扣分记录"><h3>已记录扣分</h3><p v-if="!run.deductions.length" class="wf-empty wf-empty--inline">暂无扣分记录</p><div v-else class="wf-table-wrap wf-table-wrap--tall"><table><thead><tr><th>项目</th><th>分值</th><th>依据</th><th></th></tr></thead><tbody><tr v-for="d in run.deductions" :key="d.id" :class="{ voided: d.voided }"><td>{{ d.label }}<small>{{ stamp(d.at) }}</small></td><td>{{ d.voided ? '已撤销' : `-${d.points}` }}</td><td>{{ d.reason || '—' }}</td><td><button v-if="!d.voided" type="button" class="btn btn-ghost" :disabled="busy" @click="action(async () => { run = await call(`/runs/${run.id}/deductions/${d.id}/void`, 'POST', { revision: run.revision, reason: controlReason }) }, '已撤销')">撤销</button></td></tr></tbody></table></div></section>
+            <section class="wf-deduction-records" aria-label="本次课堂扣分记录"><div class="wf-deduction-heading"><h3>已记录扣分</h3><span>{{activeDeductions.length}} 项有效记录</span></div><p v-if="!run.deductions.length" class="wf-empty wf-empty--inline">本组暂无扣分记录，保存后将在这里显示。</p><template v-else><details v-if="run.classOpen" class="wf-deduct-void-note"><summary>撤销说明</summary><label>撤销扣分时的说明<textarea v-model="controlReason" :disabled="busy" rows="2" placeholder="撤销前可在此填写原因"></textarea></label></details><div class="wf-table-wrap wf-table-wrap--tall"><table><thead><tr><th>项目 / 时间</th><th>扣分</th><th>依据</th><th>操作</th></tr></thead><tbody><tr v-for="d in run.deductions" :key="d.id" :class="{ voided: d.voided }"><td>{{ d.label }}<small>{{ stamp(d.at) }}</small></td><td>{{ d.voided ? '已撤销' : `−${d.points}` }}</td><td>{{ d.reason || '—' }}</td><td><button v-if="!d.voided" type="button" class="wf-text-button" :disabled="busy || !run.classOpen" @click="action(async () => { run = await call(`/runs/${run.id}/deductions/${d.id}/void`, 'POST', { revision: run.revision, reason: controlReason }) }, '已撤销')">撤销</button></td></tr></tbody></table></div></template></section>
+          </div>
+          <p v-else class="wf-deduct-scheduled">本课次尚未开始。点击“开始本课次”后，即可为本课次小组记录现场扣分。</p>
           </div>
         </section>
         <section v-if="isLabPage && run.lessonState !== 'scheduled' && tab === 'operation'" class="wf-panel wf-panel--student wf-panel--op-doc-wrap">
@@ -746,4 +762,73 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
 .wf-panel--op-doc-wrap>.score-confirmation .score-note{margin:4px 0}
 .wf-panel--op-doc-wrap>.score-confirmation h3 strong{font-size:24px}
 @media(max-width:640px){.wf-student-head--record .wf-student-head-main{grid-template-columns:1fr;gap:4px}}
+</style>
+
+<style scoped>
+.wf-panel--deduct { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 24px; padding: 22px; align-items: start; }
+.wf-panel--deduct .wf-classroom-overview { min-width: 0; margin: 0; padding: 0 20px 0 0; border-bottom: 0; border-right: 1px solid #e1e9ed; }
+.wf-panel--deduct .wf-classroom-overview > header { display: grid; gap: 12px; }
+.wf-panel--deduct .wf-classroom-overview h3 { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; }
+.wf-panel--deduct .wf-classroom-overview h3 small { font-size: 13px; font-weight: 400; color: #647980; }
+.wf-panel--deduct .wf-classroom-counts { gap: 6px 12px; line-height: 1.6; }
+.wf-panel--deduct .wf-classroom-groups { grid-template-columns: minmax(0, 1fr); max-height: 650px; overflow-y: auto; padding: 2px; gap: 8px; }
+.wf-panel--deduct .wf-classroom-group { padding: 12px; gap: 8px; box-shadow: none; border-radius: 6px; }
+.wf-panel--deduct .wf-classroom-group.active { background: #eef3f4; border-color: #718d97; box-shadow: none; }
+.wf-panel--deduct .wf-classroom-group__head { flex-wrap: wrap; gap: 6px; }
+.wf-panel--deduct .wf-classroom-group__head > span { font-size: 12px; color: #647980; }
+.wf-panel--deduct .wf-classroom-group > span:nth-child(2) { white-space: normal; line-height: 1.6; overflow-wrap: anywhere; }
+.wf-deduct-workspace { min-width: 0; }
+.wf-panel--deduct .wf-classroom-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 14px 20px; padding-bottom: 20px; margin-bottom: 22px; }
+.wf-deduct-context > span, .wf-deduct-score > span { color: #647980; font-size: 12px; }
+.wf-deduct-context h3 { margin: 6px 0; font-size: 20px; }
+.wf-deduct-context h3 small { font-size: 12px; font-weight: 400; color: #647980; margin-left: 8px; }
+.wf-deduct-context p { margin: 0; color: #52666f; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.wf-deduct-score { display: grid; gap: 4px; text-align: right; }
+.wf-deduct-score > strong { font-size: 30px; line-height: 1.25; font-weight: 600; color: #245b65; font-variant-numeric: tabular-nums; }
+.wf-deduct-score strong small { font-size: 13px; color: #647980; font-weight: 400; }
+.wf-panel--deduct .wf-classroom-bar__actions { grid-column: 1 / -1; margin: 0; justify-content: flex-start; }
+.wf-deduct-progress-note { grid-column: 1 / -1; margin: 0; font-size: 12px; color: #647980; line-height: 1.6; }
+.wf-panel--deduct .wf-deduct-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 26px; }
+.wf-panel--deduct fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
+.wf-panel--deduct .wf-deduction-heading { display: flex; align-items: baseline; flex-direction: row; gap: 12px; }
+.wf-panel--deduct .wf-deduction-heading h3 { font-size: 16px; margin: 0 0 6px; }
+.wf-panel--deduct .wf-deduction-heading > span { font-size: 12px; color: #647980; }
+.wf-panel--deduct .wf-checks { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
+.wf-panel--deduct .wf-checks label { display: flex; align-items: flex-start; gap: 9px; padding: 12px; margin: 0; border: 1px solid #e1e9ed; border-radius: 6px; font-size: 13px; line-height: 1.6; cursor: pointer; }
+.wf-panel--deduct .wf-checks label.is-checked { border-color: #718d97; background: #f1f6f6; }
+.wf-panel--deduct .wf-checks input { flex: 0 0 auto; width: 16px; height: 16px; margin: 3px 0 0; accent-color: #245b65; }
+.wf-panel--deduct .wf-checks label > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.wf-panel--deduct .wf-checks label strong { white-space: nowrap; font-weight: 500; color: #82523e; font-variant-numeric: tabular-nums; }
+.wf-deduct-reason { display: grid; font-size: 13px; color: #52666f; }
+.wf-deduct-save { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; }
+.wf-deduct-save > span { font-size: 13px; color: #647980; }
+.wf-deduct-save strong { color: #82523e; font-variant-numeric: tabular-nums; }
+.wf-panel--deduct .wf-deduction-records { min-width: 0; padding: 22px 0 0; margin: 0; border-left: 0; border-top: 1px solid #e1e9ed; }
+.wf-panel--deduct .wf-deduction-records table { width: 100%; min-width: 450px; table-layout: fixed; }
+.wf-panel--deduct .wf-deduction-records th:first-child { width: 32%; }
+.wf-panel--deduct .wf-deduction-records th:nth-child(2) { width: 70px; text-align: right; }
+.wf-panel--deduct .wf-deduction-records td:nth-child(2) { text-align: right; font-variant-numeric: tabular-nums; }
+.wf-panel--deduct .wf-deduction-records th:last-child { width: 58px; }
+.wf-panel--deduct .wf-deduction-records td { overflow-wrap: anywhere; }
+.wf-panel--deduct .wf-deduction-records .wf-table-wrap { overflow-x: auto; }
+.wf-deduct-void-note { margin: 8px 0; font-size: 13px; color: #647980; }
+.wf-deduct-void-note label { display: grid; }
+.wf-deduct-scheduled { padding: 24px 0; font-size: 14px; line-height: 1.8; color: #647980; }
+.wf-panel--deduct button:focus-visible { outline: 2px solid #245b65; outline-offset: 3px; }
+.wf-panel--deduct button:disabled { cursor: default; }
+@media (max-width: 1100px) {
+  .wf-panel--deduct { grid-template-columns: 200px minmax(0, 1fr); gap: 18px; padding: 18px; }
+  .wf-panel--deduct .wf-classroom-overview { padding-right: 16px; }
+  .wf-panel--deduct .wf-checks { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .wf-panel--deduct { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  .wf-panel--deduct .wf-classroom-overview { border-right: 0; border-bottom: 1px solid #e1e9ed; padding: 0 0 16px; }
+  .wf-panel--deduct .wf-classroom-groups { display: flex; overflow-x: auto; max-height: none; padding: 2px 2px 8px; }
+  .wf-panel--deduct .wf-classroom-group { flex: 0 0 200px; }
+  .wf-panel--deduct .wf-classroom-overview > header { gap: 8px; }
+  .wf-deduct-save { align-items: stretch; flex-direction: column; }
+  .wf-panel--deduct .btn { min-height: 44px; }
+  .wf-panel--deduct .wf-text-button { min-height: 36px; }
+}
 </style>
