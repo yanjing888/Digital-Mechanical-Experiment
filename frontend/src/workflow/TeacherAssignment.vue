@@ -8,7 +8,7 @@ const selected = ref(new Set()), page = ref(1), busy = ref(false), message = ref
 const pageSize = ref(8)
 const visiblePassword = ref(null)
 const size = ref(4), preview = ref(null), groups = ref([]), groupEdited = ref(false)
-const form = reactive({ expId: 'TENSION_COMPRESSION', timeText: '', place: '', note: '', tip: '', requiredTrials: ['STEEL_TENS','CAST_TENS','STEEL_COMP','CAST_COMP'] })
+const form = reactive({ expId: 'TENSION_COMPRESSION', timeText: '', place: '', note: '', tip: '', requiredTrials: [] })
 const notesDialog = ref(null)
 const notesDraft = reactive({ note: '', tip: '' })
 function editNotes() {
@@ -78,6 +78,11 @@ function buildGroups() {
     for(let i=0;i<count;i++) { const length=base+(i<extra?1:0); result.push(members.slice(at,at+length)); at+=length }
   }
   groups.value=result
+}
+function autoGroup() {
+  buildGroups()
+  groupEdited.value = false
+  preview.value.showModal()
 }
 function toggle(sid) { const next=new Set(selected.value); next.has(sid)?next.delete(sid):next.add(sid); selected.value=next }
 function toggleAll() { const next=new Set(selected.value); filtered.value.forEach(s => allSelected.value?next.delete(s.sid):next.add(s.sid)); selected.value=next }
@@ -240,7 +245,8 @@ function resetPassword(student) {
         <div class="ra-plan-count"><strong>{{chosen.length}}</strong> 人 <span>{{selectedClasses}} 个班级 · {{groups.length}} 个小组</span></div>
         <label>实验项目<select v-model="form.expId"><option value="TENSION_COMPRESSION">拉伸压缩实验</option></select></label>
         <fieldset><legend>本课次试验</legend><div class="ra-trials"><label v-for="(name,id) in trialNames" :key="id"><input type="checkbox" v-model="form.requiredTrials" :value="id">{{name}}</label></div></fieldset>
-        <div class="ra-form-pair"><label>每组人数<select v-model.number="size"><option v-for="n in [1,2,3,4,5,6,8,10]" :key="n" :value="n">{{n}} 人</option></select></label><button type="button" class="btn btn-ghost ra-preview" :disabled="!chosen.length || busy" @click="preview.showModal()">{{groupEdited?'已调整分组':'预览分组'}}</button></div>
+        <div class="ra-form-pair"><label>每组人数<select v-model.number="size"><option v-for="n in [1,2,3,4,5,6,8,10]" :key="n" :value="n">{{n}} 人</option></select></label><button type="button" class="btn btn-ghost ra-preview" :disabled="!chosen.length || busy" aria-haspopup="dialog" @click="autoGroup">自动分组</button></div>
+        <button type="button" class="ra-text-action" :disabled="!chosen.length || busy" aria-haspopup="dialog" @click="preview.showModal()">{{groupEdited?'查看已调整分组':'预览 / 调整分组'}}</button>
         <div class="ra-form-pair ra-schedule">
           <label>实验时间<div class="ra-date" :class="{'is-empty':!form.timeText}"><span v-if="!form.timeText">选择日期与时间</span><input v-model="form.timeText" type="datetime-local" aria-label="实验时间" @click="$event.target.showPicker?.()"></div></label>
           <label>地点<input v-model="form.place" placeholder="实验地点" maxlength="255"></label>
@@ -316,23 +322,31 @@ function resetPassword(student) {
         <button type="submit" form="assignment-notes-form" class="btn btn-primary">保存</button>
       </footer>
     </dialog>
-    <dialog v-if="!manage" ref="membersDialog" class="ra-dialog" aria-labelledby="task-members-title">
+    <dialog v-if="!manage" ref="membersDialog" class="ra-dialog ra-members-dialog" aria-labelledby="task-members-title">
       <header>
-        <h2 id="task-members-title">小组成员 <span>{{ memberTask?.expName }}<template v-if="memberTask?.timeText"> · {{memberTask.timeText}}</template></span></h2>
+        <div class="ra-members-heading">
+          <h2 id="task-members-title">小组成员</h2>
+          <p>{{ memberTask?.expName }}<template v-if="memberTask?.timeText"> · {{memberTask.timeText}}</template><template v-if="memberTask?.place"> · {{memberTask.place}}</template></p>
+        </div>
         <button type="button" aria-label="关闭小组成员" @click="membersDialog.close()">×</button>
       </header>
-      <div v-if="memberGroups.length" class="ra-dialog-body">
-        <section v-for="(group,index) in memberGroups" :key="group.id" class="ra-group">
+      <div class="ra-members-summary">共 <strong>{{memberGroups.reduce((total, group) => total + group.members.length, 0)}}</strong> 名学生 <span>·</span> <strong>{{memberGroups.length}}</strong> 个小组</div>
+      <div v-if="memberGroups.length" class="ra-members-body">
+        <section v-for="(group,index) in memberGroups" :key="group.id" class="ra-members-group">
           <h3>{{group.name || '第 ' + (index + 1) + ' 组'}} <small>{{group.members.length}} 人</small></h3>
-          <ul class="ra-member-list">
-            <li v-for="student in group.members" :key="student.sid" class="ra-member">
-              <strong>{{student.name}}</strong><span>{{student.sid}}<template v-if="student.cls"> · {{student.cls}}</template></span>
-            </li>
-            <li v-if="!group.members.length" class="ra-member">暂无成员记录</li>
-          </ul>
+          <div class="ra-members-table-wrap">
+            <table class="ra-members-table" :aria-label="(group.name || '第 ' + (index + 1) + ' 组') + '学生名单'">
+              <thead><tr><th scope="col">姓名</th><th scope="col">学号</th><th scope="col">班级</th></tr></thead>
+              <tbody>
+                <tr v-for="student in group.members" :key="student.sid"><td><strong>{{student.name}}</strong></td><td class="ra-numeric">{{student.sid}}</td><td>{{student.cls || '—'}}</td></tr>
+                <tr v-if="!group.members.length"><td colspan="3" class="ra-members-empty">暂无成员记录</td></tr>
+              </tbody>
+            </table>
+          </div>
         </section>
       </div>
       <p v-else class="ra-members-empty">暂无小组记录</p>
+      <footer><button type="button" class="btn btn-ghost" @click="membersDialog.close()">关闭</button></footer>
     </dialog>
     <dialog ref="preview" class="ra-dialog"><header><h2>分组预览 <span>{{chosen.length}} 人 · {{groups.length}} 组</span></h2><button type="button" aria-label="关闭分组预览" @click="preview.close()">×</button></header><div class="ra-dialog-body"><section v-for="(g,i) in groups" :key="i" class="ra-group"><h3>第 {{i+1}} 组 <small>{{g.length}} 人</small></h3><div v-for="s in g" :key="s.sid" class="ra-member"><span><strong>{{s.name}}</strong><small>{{s.sid}} · {{s.cls}}</small></span><select :value="i" :aria-label="`调整${s.name}的小组`" @change="move(s.sid,Number($event.target.value))"><option v-for="(_,j) in groups" :value="j" :key="j">第 {{j+1}} 组</option><option :value="groups.length">新小组</option></select></div></section></div><footer><button type="button" class="btn btn-ghost" @click="buildGroups();groupEdited=false">重新分组</button><button type="button" class="btn btn-primary" @click="preview.close()">完成</button></footer></dialog>
   </div>
@@ -539,6 +553,33 @@ function resetPassword(student) {
 .ra-member-list .ra-member { flex-wrap: wrap; gap: 4px 12px; font-size: 13px; }
 .ra-member-list .ra-member span, .ra-members-empty { color: var(--ra-muted); font-size: 13px; }
 .ra-members-empty { margin: 0; padding: 16px 22px 24px; }
+.ra-members-dialog { display: none; width: min(880px, calc(100vw - 32px)); overflow: hidden; }
+.ra-members-dialog[open] { display: flex; flex-direction: column; }
+.ra-members-dialog > header { align-items: flex-start; border-bottom: 1px solid var(--ra-line); flex-shrink: 0; }
+.ra-members-heading { min-width: 0; }
+.ra-members-heading p { margin: 7px 0 0; color: var(--ra-muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.ra-members-dialog > header button { min-width: 36px; min-height: 36px; line-height: 1; }
+.ra-members-summary { padding: 14px 22px; font-size: 14px; color: var(--ra-muted); flex-shrink: 0; }
+.ra-members-summary strong { color: var(--ra-ink); font-variant-numeric: tabular-nums; }
+.ra-members-summary > span { margin: 0 10px; }
+.ra-members-body { min-height: 0; overflow-y: auto; padding: 0 22px 6px; }
+.ra-members-group { margin-bottom: 18px; }
+.ra-members-group h3 { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 10px 12px; background: #f2f5f8; border-radius: 6px; font-size: 14px; }
+.ra-members-group h3 small { font-size: 13px; color: var(--ra-muted); font-weight: 400; white-space: nowrap; }
+.ra-members-table-wrap { overflow-x: auto; }
+.ra-members-table { width: 100%; table-layout: fixed; border-collapse: collapse; text-align: left; font-size: 14px; line-height: 1.6; }
+.ra-members-table th, .ra-members-table td { padding: 10px 12px; border-bottom: 1px solid #edf1f3; overflow-wrap: anywhere; vertical-align: top; }
+.ra-members-table th { font-size: 12px; font-weight: 400; color: var(--ra-muted); }
+.ra-members-table th:first-child { width: 22%; }
+.ra-members-table th:nth-child(2) { width: 34%; }
+.ra-members-table td strong { font-weight: 600; }
+.ra-members-dialog > footer { justify-content: flex-end; border-top: 1px solid var(--ra-line); flex-shrink: 0; padding-block: 12px; }
+@media (max-width: 600px) {
+  .ra-members-dialog > header, .ra-members-summary { padding-inline: 16px; }
+  .ra-members-body { padding-inline: 16px; }
+  .ra-members-table { min-width: 540px; }
+  .ra-members-table th:first-child, .ra-members-table td:first-child { position: sticky; left: 0; background: #fff; }
+}
 
 @media (max-width: 700px) {
   .ra-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
