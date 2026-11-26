@@ -1,41 +1,5 @@
 <template>
-  <div id="screen-login" class="login-screen">
-    <div class="login-wrap">
-      <div class="login-hero">
-        <div class="login-hero-bg"></div>
-        <div class="login-hero-logo-wrap">
-          <img class="login-hero-logo-img" src="/assets/jyd-logo-white.png" alt="竞业达" />
-        </div>
-      </div>
-      <div class="login-form-side">
-        <div class="login-card">
-          <div class="login-card-head">
-            <h3>欢迎回来 👋</h3>
-            <p>请使用账号或学号登录系统</p>
-          </div>
-          <div class="login-field">
-            <label class="field-label" for="login-account">账号</label>
-            <input id="login-account" class="inp" autocomplete="username" placeholder="账号或学号" />
-          </div>
-          <div class="login-field">
-            <label class="field-label" for="login-password">密码</label>
-            <input id="login-password" class="inp" type="password" autocomplete="current-password" placeholder="请输入密码" />
-          </div>
-          <div class="login-options">
-            <label class="login-remember">
-              <input type="checkbox" id="login-remember" />
-              <span>记住账号</span>
-            </label>
-            <button type="button" class="linkish" id="btn-forgot">忘记密码？</button>
-          </div>
-          <button type="button" class="btn btn-primary btn-login" id="btn-login">登录</button>
-          <div class="login-foot-note">
-            登录即表示同意 <a href="#">服务条款</a> 和 <a href="#">隐私政策</a>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+  <LoginScreen />
 
   <div id="screen-app" class="app hidden">
     <header class="topbar">
@@ -54,7 +18,7 @@
       <nav id="nav-student" class="topnav flow-nav hidden" aria-label="学生流程">
         <button type="button" class="nav-item active" data-p="s-home"><span class="fn-num">1</span>任务中心</button>
         <span class="fn-line" data-line="1"></span>
-        <button type="button" class="nav-item" data-p="s-lab"><span class="fn-num">2</span>现场实验</button>
+        <button type="button" class="nav-item" data-p="s-lab"><span class="fn-num">2</span>资料采集</button>
         <span class="fn-line" data-line="2"></span>
         <button type="button" class="nav-item" data-p="s-report"><span class="fn-num">3</span>实验报告</button>
       </nav>
@@ -85,6 +49,7 @@
 import { onMounted } from 'vue'
 import { bootApp } from './legacy/app.js'
 import StudentAccountMenu from './StudentAccountMenu.vue'
+import LoginScreen from './LoginScreen.vue'
 
 onMounted(() => {
   bootApp()

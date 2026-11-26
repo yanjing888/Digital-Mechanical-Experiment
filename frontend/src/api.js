@@ -94,7 +94,7 @@ export const api = {
   downloadRosterTemplate: downloadTemplate,
   uploadRoster: (file) => upload('/roster/upload', file),
   rosterStudents: () => request('GET', '/roster/students'),
-  resetStudentPassword: (sid, password) => request('POST', '/roster/students/' + encodeURIComponent(sid) + '/reset-password', { password }),
+  resetStudentPassword: (sid) => request('POST', '/roster/students/' + encodeURIComponent(sid) + '/reset-password', { password: sid }),
   studentPassword: (sid) => request('POST', '/roster/students/' + encodeURIComponent(sid) + '/password', {}),
   adminTeachers: () => request('GET', '/admin/teachers'),
   addTeacher: (payload) => request('POST', '/admin/teachers', payload),

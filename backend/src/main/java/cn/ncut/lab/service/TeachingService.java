@@ -60,22 +60,22 @@ public class TeachingService {
     public Object deduction(String id,Actor a,Map<String,Object> b) {
         teacher(a);Map<String,Object> r=runs.load(id,a,true);runs.checkRevision(r,b);
         if(!Boolean.TRUE.equals(r.get("classOpen")))throw new ApiException(409,"课堂已结束，需先以纠错理由重新开放记录");
-        String reason=required(b.get("reason"),"扣分依据");Map<String,Object> s=settings();
+        String reason=optionalReason(b.get("reason"),"扣分依据");Map<String,Object> s=settings();
         if(!Boolean.TRUE.equals(s.get("catalogConfirmed")))throw new ApiException(400,"请先确认学校扣分项目及分值");
         List<?> selected=b.get("items") instanceof List<?> l?l:List.of();if(selected.isEmpty())throw new ApiException(400,"请选择扣分项目");
         for(Object key:new LinkedHashSet<>(selected)) {
             Map<String,Object> rule=list(s.get("catalog")).stream().filter(c->Objects.equals(c.get("id"),key)).findFirst().orElseThrow(()->new ApiException(400,"扣分项目不存在"));
             List<Map<String,Object>> deductions=list(r.get("deductions"));Map<String,Object> item=new LinkedHashMap<>(rule);item.put("id",id());item.put("ruleId",key);item.put("reason",reason);item.put("by",a.id());item.put("at",now());deductions.add(item);r.put("deductions",deductions);
         }
-        ClassroomService.scoreChanged(r);runs.save(r,a,"记录课堂扣分："+reason);return runs.detail(id,a);
+        ClassroomService.scoreChanged(r);runs.save(r,a,"记录课堂扣分"+(reason.isEmpty()?"":"："+reason));return runs.detail(id,a);
     }
     @Transactional
     public Object voidDeduction(String id,String did,Actor a,Map<String,Object> b) {
         teacher(a);Map<String,Object> r=runs.load(id,a,true);runs.checkRevision(r,b);
         if(!Boolean.TRUE.equals(r.get("classOpen")))throw new ApiException(409,"扣分已确认，请先重新开放评分再撤销");
-        String reason=required(b.get("reason"),"撤销理由");boolean found=false;
+        String reason=optionalReason(b.get("reason"),"撤销说明");boolean found=false;
         for(var d:list(r.get("deductions")))if(did.equals(d.get("id"))){d.put("voided",true);d.put("voidReason",reason);d.put("voidAt",now());d.put("voidBy",a.id());found=true;}
-        if(!found)throw new ApiException(404,"扣分记录不存在");ClassroomService.scoreChanged(r);runs.save(r,a,"纠正扣分："+reason);return runs.detail(id,a);
+        if(!found)throw new ApiException(404,"扣分记录不存在");ClassroomService.scoreChanged(r);runs.save(r,a,"纠正扣分"+(reason.isEmpty()?"":"："+reason));return runs.detail(id,a);
     }
     @Transactional
     public Object control(String id,Actor a,Map<String,Object> b) {
@@ -106,6 +106,11 @@ public class TeachingService {
         runs.save(r,a,action+"："+reason);return runs.detail(id,a);
     }
 
+    private static String optionalReason(Object value,String label) {
+        String reason=str(value);
+        if(reason.length()>2000)throw new ApiException(400,label+"过长");
+        return reason;
+    }
     private static String reasonOrDefault(Object value,String fallback) {
         String s=str(value);
         return s.isBlank() ? fallback : s;

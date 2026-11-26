@@ -388,6 +388,42 @@ class WorkflowTest {
         var close=body("items",List.of("door"));close.put("reason","新扣分");assertThrows(ApiException.class,()->teaching.deduction(runId,teacher,close));
         assertFalse(runs.detail(runId,student).containsKey("audit"));assertTrue(list(runs.detail(runId,teacher).get("audit")).size()>=4);
     }
+    @Test void deductionsAndVoidsAllowOptionalReasonsAndKeepHistory() {
+        configure();
+        var reasons=List.<Map<String,Object>>of(Map.of(),Map.of("reason",""),Map.of("reason"," \t "),Collections.singletonMap("reason",null),Map.of("reason","  现场核对  "));
+        for(var reason:reasons) {
+            var add=body("items",List.of("door"));add.putAll(reason);
+            teaching.deduction(runId,teacher,add);
+            var afterAdd=runs.detail(runId,teacher);
+            assertEquals(85.0,afterAdd.get("operationScore"));
+            var deductions=list(afterAdd.get("deductions"));
+            var deduction=deductions.get(deductions.size()-1);
+            assertEquals(str(reason.get("reason")),deduction.get("reason"));
+            assertEquals(teacher.id(),deduction.get("by"));assertNotNull(deduction.get("at"));
+            var cancel=body("revision",afterAdd.get("revision"));cancel.putAll(reason);
+            teaching.voidDeduction(runId,str(deduction.get("id")),teacher,cancel);
+            var afterVoid=runs.detail(runId,teacher);
+            assertEquals(100.0,afterVoid.get("operationScore"));
+            var saved=list(afterVoid.get("deductions"));
+            assertEquals(deductions.size(),saved.size());
+            var voided=saved.get(saved.size()-1);
+            assertEquals(true,voided.get("voided"));
+            assertEquals(str(reason.get("reason")),voided.get("voidReason"));
+            assertEquals(teacher.id(),voided.get("voidBy"));assertNotNull(voided.get("voidAt"));
+        }
+    }
+    @Test void optionalDeductionReasonsStillRejectOversizedText() {
+        configure();
+        var add=body("items",List.of("door"));add.put("reason","x".repeat(2001));
+        assertEquals(400,assertThrows(ApiException.class,()->teaching.deduction(runId,teacher,add)).getStatus());
+        assertTrue(list(runs.detail(runId,teacher).get("deductions")).isEmpty());
+        teaching.deduction(runId,teacher,body("items",List.of("door")));
+        String did=str(list(runs.detail(runId,teacher).get("deductions")).get(0).get("id"));
+        var cancel=body("reason","x".repeat(2001));
+        assertEquals(400,assertThrows(ApiException.class,()->teaching.voidDeduction(runId,did,teacher,cancel)).getStatus());
+        assertEquals(85.0,runs.detail(runId,teacher).get("operationScore"));
+        assertNotEquals(true,list(runs.detail(runId,teacher).get("deductions")).get(0).get("voided"));
+    }
     @Test void invalidBatchIsAtomicAndStaleWritesRejected() {
         configure();var bad=body("items",List.of("door","missing"));bad.put("reason","操作");assertThrows(ApiException.class,()->teaching.deduction(runId,teacher,bad));
         assertTrue(list(runs.detail(runId,teacher).get("deductions")).isEmpty());

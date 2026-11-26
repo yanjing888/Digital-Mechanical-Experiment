@@ -102,7 +102,6 @@ const angle = ref('正面'), images = reactive({}), video = ref(null), camera = 
 let stream, timer, disposed = false
 const settings = ref({ catalog: [], requiredSections: [] }), showSettings = ref(false)
 const deduction = reactive({ items: [], reason: '' }), grade = reactive({ score: 100, comment: '', reason: '' })
-const controlReason = ref('')
 const pendingDeductionPoints = computed(() => (settings.value.catalog || [])
   .filter(item => deduction.items.includes(item.id)).reduce((total, item) => total + Number(item.points || 0), 0))
 const reportGrades = reactive({}), reportPreview = ref(''), requestId = ref(newId())
@@ -129,7 +128,7 @@ const classroomCounts = computed(() => ({
 function classroomState(item) {
   if (item.lessonState === 'scheduled') return { text: '待开课', kind: '' }
   if (item.retakeRequest?.status === 'pending') return { text: '申请重做', kind: 'warn' }
-  if (!item.collectionComplete) return { text: '实验进行中', kind: '' }
+  if (!item.collectionComplete) return { text: '采集进行中', kind: '' }
   if (item.classOpen) return { text: '待确认扣分', kind: 'attention' }
   if (!item.archived) return { text: '待学生选择', kind: '' }
   return { text: '记录已提交', kind: '' }
@@ -143,7 +142,7 @@ const isReportPage = computed(() => !props.teacher && props.page === 's-report')
 const studentPageTitle = computed(() => {
   if (props.teacher) return '课堂记录与评阅'
   if (isReportPage.value) return '实验报告'
-  if (isLabPage.value) return tab.value === 'operation' ? '操作记录' : '现场实验'
+  if (isLabPage.value) return tab.value === 'operation' ? '操作记录' : '资料采集'
   return '实验采集'
 })
 function labStepDone(id) {
@@ -220,10 +219,15 @@ const teacherRunGroups = computed(() => {
 async function loadSettings() { settings.value = await call('/settings') }
 async function saveSettings() { settings.value = await call('/settings', 'PUT', { revision: settings.value.revision, catalog: settings.value.catalog, catalogConfirmed: settings.value.catalogConfirmed }) }
 async function control(actionName) {
+  if (actionName === 'close' && deduction.items.some(id => {
+    const item = settings.value.catalog.find(item => item.id === id)
+    return !item || Number(item.points) !== 0
+  })) throw new Error('还有未添加的扣分项，请先点击“添加扣分记录”；如不扣分，请取消勾选后再确认操作成绩。')
   const defaults = { close: '教师确认最终扣分并发布成绩', open: '教师重新开放扣分调整', return: '教师退回学生补采或修正', clearGrade: '按扣分明细恢复计分' }
-  let reason = (controlReason.value || grade.reason || '').trim()
+  let reason = (grade.reason || '').trim()
   if (!reason && defaults[actionName]) reason = defaults[actionName]
   run.value = await call(`/runs/${run.value.id}/control`, 'POST', { action: actionName, revision: run.value.revision, reason, score: grade.score, comment: grade.comment })
+  if (actionName === 'close') { deduction.items = []; deduction.reason = '' }
   await listRuns()
 }
 async function openReport(report) {
@@ -341,7 +345,7 @@ async function select(id) {
   stopCamera(); run.value = await call(`/runs/${id}`); setMeta()
   sessionStorage.setItem(selectionKey, id)
   Object.assign(grade, { score: run.value.operationScore, comment: run.value.finalComment || '', reason: '' })
-  deduction.items = []; deduction.reason = ''; controlReason.value = ''
+  deduction.items = []; deduction.reason = ''
   requestId.value = newId()
   if (reportPreview.value) URL.revokeObjectURL(reportPreview.value); reportPreview.value = ''
   for (const report of run.value.reports) reportGrades[report.id] = { score: report.finalScore ?? 100, comment: report.finalComment || '' }
@@ -539,7 +543,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <button v-for="item in run.trialItems" :key="item.id" type="button" :class="{ active: run.trialId === item.id }" :disabled="busy" @click="action(() => pickTrial(item.id))"><strong>{{ item.name }}</strong><small>{{ item.dataReady && item.photoReady ? '采集完成' : item.dataReady || item.photoReady ? '采集中' : '待采集' }}</small></button>
         </nav>
         <section v-if="isLabPage && run.lessonState === 'scheduled'" class="wf-panel wf-panel--student wf-waiting"><h3>待开课</h3><button type="button" class="btn btn-ghost" :disabled="busy" @click="refreshLab">刷新</button></section>
-        <nav v-if="isLabPage && run.lessonState !== 'scheduled' && tab !== 'operation'" class="wf-stepper" aria-label="现场实验步骤">
+        <nav v-if="isLabPage && run.lessonState !== 'scheduled' && tab !== 'operation'" class="wf-stepper" aria-label="资料采集步骤">
           <button v-for="(s, i) in labSteps" :key="s.id" type="button" class="wf-step" :class="{ active: tab === s.id, done: labStepDone(s.id) }" @click="goLabStep(s.id)"><span class="wf-step-num">{{ i + 1 }}</span><span class="wf-step-title">{{ s.title }}</span></button>
         </nav>
         <section v-if="isLabPage && run.lessonState !== 'scheduled' && tab === 'data'" class="wf-panel wf-panel--student">
@@ -588,7 +592,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <section class="wf-classroom-overview" aria-label="本课次小组进度">
             <header>
               <h3>本课次小组 <small>{{classroomRuns.length}} 组</small></h3>
-              <div class="wf-classroom-counts"><span v-if="classroomCounts.scheduled">待开课 {{ classroomCounts.scheduled }}</span><span>实验中 {{ classroomCounts.collecting }}</span><span>待确认扣分 {{ classroomCounts.grading }}</span><span>待学生选择 {{ classroomCounts.published }}</span><span>记录已提交 {{ classroomCounts.submitted }}</span></div>
+              <div class="wf-classroom-counts"><span v-if="classroomCounts.scheduled">待开课 {{ classroomCounts.scheduled }}</span><span>采集中 {{ classroomCounts.collecting }}</span><span>待确认扣分 {{ classroomCounts.grading }}</span><span>待学生选择 {{ classroomCounts.published }}</span><span>记录已提交 {{ classroomCounts.submitted }}</span></div>
             </header>
             <div class="wf-classroom-groups">
               <button v-for="item in classroomRuns" :key="item.id" type="button" class="wf-classroom-group" :class="{ active: item.id === run.id }" :aria-pressed="item.id === run.id" :disabled="busy" @click="action(() => select(item.id))">
@@ -615,13 +619,13 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
               <fieldset :disabled="busy">
                 <p v-if="!run.classOpen" class="wf-message">操作成绩已发布，如需修改请先重新开放评分。</p>
                 <div v-if="!settings.catalogConfirmed" class="wf-message error wf-deduction-setup"><strong>请先确认扣分项和分值</strong><button type="button" class="btn btn-ghost" @click="showSettings = true">去配置</button></div>
-                <div class="wf-deduction-heading"><div><h3>记录本次扣分</h3><p>勾选扣分项，填写现场情况后保存。</p></div><button type="button" class="wf-text-button" @click="showSettings = true">编辑扣分项</button></div>
+                <div class="wf-deduction-heading"><div><h3>记录本次扣分</h3><p>有扣分时，勾选项目后添加记录；无扣分时，可直接确认操作成绩。</p></div><button type="button" class="wf-text-button" @click="showSettings = true">编辑扣分项</button></div>
                 <div class="wf-checks"><label v-for="item in settings.catalog" :key="item.id" :class="{ 'is-checked': deduction.items.includes(item.id) }"><input v-model="deduction.items" type="checkbox" :value="item.id" :disabled="!run.classOpen || !settings.catalogConfirmed"><span>{{item.label}}</span><strong>−{{item.points}} 分</strong></label></div>
-                <label class="wf-deduct-reason">扣分依据<textarea v-model="deduction.reason" :disabled="!run.classOpen" rows="3" placeholder="填写具体操作、发生情况及现场提醒，便于学生核对。"></textarea></label>
-                <div class="wf-deduct-save"><span>已选 {{deduction.items.length}} 项 · 本次扣 <strong>{{pendingDeductionPoints}}</strong> 分</span><button type="button" class="btn btn-primary" :disabled="!run.classOpen || !settings.catalogConfirmed || !deduction.items.length" @click="action(async () => { run = await call(`/runs/${run.id}/deductions`, 'POST', { ...deduction, revision: run.revision }); deduction.items = []; deduction.reason = ''; await listRuns() }, '保存本次扣分')">保存本次扣分</button></div>
+                <label class="wf-deduct-reason">扣分依据（选填）<textarea v-model="deduction.reason" :disabled="!run.classOpen" rows="3" maxlength="2000" placeholder="可补充现场情况，不填写也可添加扣分记录。"></textarea></label>
+                <div class="wf-deduct-save"><span>已选 {{deduction.items.length}} 项 · 本次扣 <strong>{{pendingDeductionPoints}}</strong> 分</span><button type="button" class="btn btn-primary" :disabled="!run.classOpen || !settings.catalogConfirmed || !deduction.items.length" @click="action(async () => { run = await call(`/runs/${run.id}/deductions`, 'POST', { ...deduction, revision: run.revision }); deduction.items = []; deduction.reason = ''; await listRuns() }, '扣分记录已添加')">添加扣分记录</button></div>
               </fieldset>
             </div>
-            <section class="wf-deduction-records" aria-label="本次课堂扣分记录"><div class="wf-deduction-heading"><h3>已记录扣分</h3><span>{{activeDeductions.length}} 项有效记录</span></div><p v-if="!run.deductions.length" class="wf-empty wf-empty--inline">本组暂无扣分记录，保存后将在这里显示。</p><template v-else><details v-if="run.classOpen" class="wf-deduct-void-note"><summary>撤销说明</summary><label>撤销扣分时的说明<textarea v-model="controlReason" :disabled="busy" rows="2" placeholder="撤销前可在此填写原因"></textarea></label></details><div class="wf-table-wrap wf-table-wrap--tall"><table><thead><tr><th>项目 / 时间</th><th>扣分</th><th>依据</th><th>操作</th></tr></thead><tbody><tr v-for="d in run.deductions" :key="d.id" :class="{ voided: d.voided }"><td>{{ d.label }}<small>{{ stamp(d.at) }}</small></td><td>{{ d.voided ? '已撤销' : `−${d.points}` }}</td><td>{{ d.reason || '—' }}</td><td><button v-if="!d.voided" type="button" class="wf-text-button" :disabled="busy || !run.classOpen" @click="action(async () => { run = await call(`/runs/${run.id}/deductions/${d.id}/void`, 'POST', { revision: run.revision, reason: controlReason }) }, '已撤销')">撤销</button></td></tr></tbody></table></div></template></section>
+            <section class="wf-deduction-records" aria-label="本次课堂扣分记录"><div class="wf-deduction-heading"><h3>已记录扣分</h3><span>{{activeDeductions.length}} 项有效记录</span></div><p v-if="!run.deductions.length" class="wf-empty wf-empty--inline">本组暂无扣分记录，保存后将在这里显示。</p><template v-else><div class="wf-table-wrap wf-table-wrap--tall"><table><thead><tr><th>项目 / 时间</th><th>扣分</th><th>依据</th><th>操作</th></tr></thead><tbody><tr v-for="d in run.deductions" :key="d.id" :class="{ voided: d.voided }"><td>{{ d.label }}<small>{{ stamp(d.at) }}</small></td><td>{{ d.voided ? '已撤销' : `−${d.points}` }}</td><td>{{ d.reason || '—' }}</td><td><button v-if="!d.voided" type="button" class="wf-text-button" :disabled="busy || !run.classOpen" @click="action(async () => { run = await call(`/runs/${run.id}/deductions/${d.id}/void`, 'POST', { revision: run.revision }) }, '已撤销')">撤销</button></td></tr></tbody></table></div></template></section>
           </div>
           <p v-else class="wf-deduct-scheduled">本课次尚未开始。点击“开始本课次”后，即可为本课次小组记录现场扣分。</p>
           </div>
@@ -811,8 +815,8 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
 .wf-panel--deduct .wf-deduction-records th:last-child { width: 58px; }
 .wf-panel--deduct .wf-deduction-records td { overflow-wrap: anywhere; }
 .wf-panel--deduct .wf-deduction-records .wf-table-wrap { overflow-x: auto; }
-.wf-deduct-void-note { margin: 8px 0; font-size: 13px; color: #647980; }
-.wf-deduct-void-note label { display: grid; }
+
+
 .wf-deduct-scheduled { padding: 24px 0; font-size: 14px; line-height: 1.8; color: #647980; }
 .wf-panel--deduct button:focus-visible { outline: 2px solid #245b65; outline-offset: 3px; }
 .wf-panel--deduct button:disabled { cursor: default; }

@@ -31,7 +31,7 @@ function choose(event) {
           <button type="button" class="btn btn-ghost" :disabled="disabled" @click="picker.click()">{{ busy ? '处理中…' : draft ? '重新上传' : '选择文件' }}</button>
           <small v-if="draft">上传于 {{ stamp(draft.uploadedAt) }}</small>
         </div>
-        <p v-if="!run.archived" class="report-alert">请先在「现场实验 · 操作记录」提交实验操作记录。</p>
+        <p v-if="!run.archived" class="report-alert">请先在「资料采集 · 操作记录」提交实验操作记录。</p>
         <p v-else-if="run.classOpen" class="report-alert">待教师确认最终扣分并发布操作成绩。</p>
         <p v-else-if="!run.myScoreConfirmed" class="report-alert">请先确认本次最终操作成绩。</p>
         <p v-else-if="locked" class="report-instruction">报告已提交并锁定。如需修改，请联系教师退回。</p>

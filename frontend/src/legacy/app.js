@@ -81,7 +81,7 @@ export function bootApp() {
   }
 
   function studentJourney(status) {
-    var labels = ['任务中心', '现场实验', '实验报告', '提交完成'];
+    var labels = ['任务中心', '资料采集', '实验报告', '提交完成'];
     var idx = ({ none: 0, assigned: 0, in_lab: 1, lab_done: 2, submitted: 3 })[status] || 0;
     return '<div class="journey-bar" aria-label="实验进度">'
       + labels.map(function (lab, i) {
@@ -121,7 +121,7 @@ export function bootApp() {
     if (roleEl) {
       roleEl.textContent = isTea
         ? '教师工作台 · 分组下发与报告评阅'
-        : '学生实验流程 · 任务中心 → 现场实验 → 实验报告';
+        : '学生实验流程 · 任务中心 → 资料采集 → 实验报告';
     }
   }
 
@@ -996,26 +996,26 @@ export function bootApp() {
     var cta = awaitingStart
       ? '<button type="button" class="btn btn-ghost btn-lg" id="btn-refresh-task">刷新安排</button>'
       : s.status === 'assigned'
-      ? '<button type="button" class="btn btn-primary btn-lg" id="btn-start-lab">开始现场实验</button>'
+      ? '<button type="button" class="btn btn-primary btn-lg" id="btn-start-lab">开始采集</button>'
       : (s.status === 'in_lab'
-          ? '<button type="button" class="btn btn-primary btn-lg" id="btn-go-lab">继续实验</button>'
+          ? '<button type="button" class="btn btn-primary btn-lg" id="btn-go-lab">继续采集</button>'
           : '<button type="button" class="btn btn-primary btn-lg" id="btn-go-report">查看报告</button>');
     var nextHint = s.status === 'assigned'
-      ? '进入现场实验，完成数据采集、断口观察与操作记录。'
+      ? '导入设备实验数据、采集断口图像并提交操作记录。'
       : (s.status === 'in_lab'
-          ? '在「实验」页继续采集或断口观察。'
+          ? '在「资料采集」页继续导入数据、采集断口图像。'
           : (s.status === 'lab_done'
               ? '前往「报告」查看实验操作记录并撰写个人报告。'
               : '全部流程已完成，可查看教师评分。'));
 
     var stepNum = s.status === 'assigned' ? 1 : (s.status === 'in_lab' ? 2 : (s.status === 'lab_done' ? 3 : 4));
-    var stepTitle = ['', '待开始实验', '实验进行中', '待提交报告', '已完成'][stepNum];
+    var stepTitle = ['', '待开始采集', '采集进行中', '待提交报告', '已完成'][stepNum];
     if (awaitingStart) stepTitle = '待开课';
     var stepDesc = [
       '',
-      '任务已下发，准备进入实验室开始实验',
-      '正在进行数据采集与断口观察',
-      '实验已完成，正在撰写个人报告',
+      '任务已下发，在原设备软件完成实验后，导入数据并采集断口图像',
+      '正在导入实验数据与采集断口图像',
+      '资料采集已完成，正在撰写个人报告',
       '报告已提交，等待教师评阅'
     ][stepNum];
 
@@ -1061,7 +1061,7 @@ export function bootApp() {
       (s.expName ? esc(s.expName) + ' · ' : '') + '按步骤完成联锁启动、实时采集与断口观察。');
 
     if (s.status === 'none' || s.status === 'assigned') {
-      return head + emptyPanel('🔒', '实验尚未开始', '请先在「任务」页点击<strong>开始现场实验</strong>。');
+      return head + emptyPanel('🔒', '尚未开始采集', '请先在「任务」页点击<strong>开始采集</strong>。');
     }
 
     if (s.status === 'lab_done' || s.status === 'submitted') {
@@ -1225,10 +1225,10 @@ export function bootApp() {
     var head = pageHero('学生 · 步骤 3', '实验报告',
       esc(s.name) + ' · ' + esc(s.groupName || '') + (s.expName ? ' · ' + esc(s.expName) : ''));
     if (s.status === 'none' || s.status === 'assigned') {
-      return head + emptyPanel('📄', '尚无实验数据', '完成现场实验后，平台会自动生成实验操作记录。');
+      return head + emptyPanel('📄', '尚无实验数据', '完成资料采集后，平台会自动生成实验操作记录。');
     }
     if (s.status === 'in_lab') {
-      return head + emptyPanel('⏳', '实验进行中', '请先完成现场实验的全部步骤。');
+      return head + emptyPanel('⏳', '采集进行中', '请先完成资料采集的全部步骤。');
     }
 
     var gr = ui.snap.groupReport || { confirmedBy: [], html: '', submitted: false, deductions: [] };
@@ -2140,26 +2140,70 @@ export function bootApp() {
   }
 
   async function fillLogin() {
-    // 账号密码登录，无需预加载角色列表
+    try {
+      var rememberedAccount = localStorage.getItem('lab-platform-login-account');
+      if (rememberedAccount) {
+        document.getElementById('login-account').value = rememberedAccount;
+        document.getElementById('login-remember').checked = true;
+      }
+    } catch (_) {}
+  }
+
+  function loginFeedback(message) {
+    var feedback = document.getElementById('login-feedback');
+    feedback.textContent = message || '';
+    feedback.hidden = !message;
   }
 
   document.getElementById('btn-login').onclick = async function () {
-    var account = document.getElementById('login-account').value.trim();
-    var password = document.getElementById('login-password').value;
-    if (!account || !password) { await showAlert('请输入账号和密码'); return; }
+    var loginButton = document.getElementById('btn-login');
+    if (loginButton.disabled) return;
+    var accountInput = document.getElementById('login-account');
+    var passwordInput = document.getElementById('login-password');
+    var account = accountInput.value.trim();
+    var password = passwordInput.value;
+    loginFeedback('');
+    if (!account || !password) {
+      var missingInput = !account ? accountInput : passwordInput;
+      missingInput.setAttribute('aria-invalid', 'true');
+      missingInput.focus();
+      loginFeedback(!account ? '请输入账号或学号。' : '请输入密码。');
+      return;
+    }
+    loginButton.disabled = true;
+    loginButton.setAttribute('aria-busy', 'true');
+    loginButton.textContent = '登录中…';
+    accountInput.disabled = passwordInput.disabled = true;
     try {
       var r = await api.login({ account: account, password: password });
       api.setToken(r.token);
       setPage(r.role === 'admin' ? 'a-teachers' : (r.role === 'teacher' ? 't-assign' : 's-home'));
       await enterApp();
-    } catch (e) { await showAlert(e.message); }
+      passwordInput.value = '';
+      try {
+        if (document.getElementById('login-remember').checked) localStorage.setItem('lab-platform-login-account', account);
+        else localStorage.removeItem('lab-platform-login-account');
+      } catch (_) {}
+    } catch (e) { loginFeedback(e.message || '登录失败，请稍后重试。'); }
+    finally {
+      loginButton.disabled = false;
+      loginButton.removeAttribute('aria-busy');
+      loginButton.textContent = '登录';
+      accountInput.disabled = passwordInput.disabled = false;
+    }
   };
 
   document.getElementById('login-password').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') document.getElementById('btn-login').click();
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btn-login').click(); }
   });
   document.getElementById('login-account').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') document.getElementById('login-password').focus();
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('login-password').focus(); }
+  });
+  ['login-account', 'login-password'].forEach(function (id) {
+    document.getElementById(id).addEventListener('input', function () {
+      this.removeAttribute('aria-invalid');
+      loginFeedback('');
+    });
   });
 
   document.getElementById('btn-logout').onclick = async function () {
