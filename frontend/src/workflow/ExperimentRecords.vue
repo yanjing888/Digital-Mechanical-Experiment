@@ -1,24 +1,46 @@
 <script setup>
-import { computed, onUnmounted, reactive, ref } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { call, fileBlob } from './api.js'
 import OperationRecordDoc from './OperationRecordDoc.vue'
 import TablePagination from './TablePagination.vue'
 import TablePageSize from './TablePageSize.vue'
 import { usePagination } from './pagination.js'
+import TableToolbar from './TableToolbar.vue'
 
 const props = defineProps({ runs: { type: Array, default: () => [] }, students: { type: Array, default: () => [] }, loading: Boolean })
 const emit = defineEmits(['refresh'])
-const experiment = ref(''), group = ref(''), selectedClass = ref(''), status = ref(''), query = ref('')
+const experiment = ref(''), selectedMajor = ref(''), selectedClass = ref(''), status = ref(''), query = ref('')
 const active = ref(null), detail = ref(null), loadingDetail = ref(false), error = ref('')
 const images = reactive({})
 let generation = 0
 const experiments = computed(() => [...new Map(props.runs.map(row => [row.expId, row.expName])).entries()])
-const groups = computed(() => [...new Set(props.runs.filter(row => !experiment.value || row.expId === experiment.value).map(row => row.groupName))].sort((a, b) => String(a).localeCompare(String(b), 'zh-CN', { numeric: true })))
-const studentClasses = computed(() => new Map(props.students.map(student => [student.sid, student.cls])))
-function rowClasses(row) {
-  return [...new Set((row.members || []).map(member => (member.cls && member.cls !== '—' ? member.cls : studentClasses.value.get(member.sid) || '').trim()).filter(name => name && name !== '—'))]
+const studentProfiles = computed(() => new Map(props.students.map(student => [student.sid, student])))
+const profileText = value => { const text = String(value || '').trim(); return text === '—' ? '' : text }
+function profilesFor(row) {
+  return (row.members || []).map(member => {
+    const current = studentProfiles.value.get(member.sid) || {}
+    return { major: profileText(member.major) || profileText(current.major), cls: profileText(member.cls) || profileText(current.cls) }
+  })
 }
-const classes = computed(() => [...new Set(props.runs.flatMap(rowClasses))].sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true })))
+const majorName = profile => profile.major || '未填写专业'
+const rowMajors = row => [...new Set(profilesFor(row).map(profile => profile.major).filter(Boolean))]
+const rowClasses = row => [...new Set(profilesFor(row).map(profile => profile.cls).filter(Boolean))]
+const experimentRows = computed(() => props.runs.filter(row => !experiment.value || row.expId === experiment.value))
+const majors = computed(() => [...new Set(experimentRows.value.flatMap(row => {
+  const profiles = profilesFor(row)
+  return profiles.length ? profiles.map(majorName) : ['未填写专业']
+}))].sort((a, b) => a.localeCompare(b, 'zh-CN')))
+const classes = computed(() => [...new Set(experimentRows.value.flatMap(row => profilesFor(row)
+  .filter(profile => !selectedMajor.value || majorName(profile) === selectedMajor.value)
+  .map(profile => profile.cls).filter(Boolean)))].sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true })))
+watch(experiment, () => { selectedMajor.value = ''; selectedClass.value = '' })
+watch(selectedMajor, () => { selectedClass.value = '' })
+function matchesProfile(row) {
+  if (!selectedMajor.value && !selectedClass.value) return true
+  const profiles = profilesFor(row)
+  return (profiles.length ? profiles : [{ major: '', cls: '' }]).some(profile =>
+    (!selectedMajor.value || majorName(profile) === selectedMajor.value) && (!selectedClass.value || profile.cls === selectedClass.value))
+}
 function recordStatus(row) {
   if (row.retakeRequest?.status === 'pending') return '重做待处理'
   if (row.retakeRequest?.status === 'arranged') return '已安排重做'
@@ -31,12 +53,13 @@ const statusStyles = { '采集中': 'collecting', '待确认成绩': 'grading', 
 const filtered = computed(() => {
   const search = query.value.trim().toLowerCase()
   return props.runs.filter(row => (!experiment.value || row.expId === experiment.value)
-    && (!group.value || row.groupName === group.value)
-    && (!selectedClass.value || rowClasses(row).includes(selectedClass.value))
+    && matchesProfile(row)
     && (!status.value || recordStatus(row) === status.value)
-    && (!search || [row.expName, row.groupName, ...rowClasses(row), ...(row.members || []).flatMap(m => [m.name, m.sid])].join(' ').toLowerCase().includes(search)))
+    && (!search || [row.expName, row.groupName, ...rowMajors(row), ...rowClasses(row), ...(row.members || []).flatMap(m => [m.name, m.sid])].join(' ').toLowerCase().includes(search)))
 })
-const { page, pageSize, pagedRows } = usePagination(filtered, [experiment, group, selectedClass, status, query])
+const { page, pageSize, pagedRows } = usePagination(filtered, [experiment, selectedMajor, selectedClass, status, query])
+const hasFilters = computed(() => !!(experiment.value || selectedMajor.value || selectedClass.value || status.value || query.value.trim()))
+function resetFilters() { experiment.value = ''; selectedMajor.value = ''; selectedClass.value = ''; status.value = ''; query.value = '' }
 const stamp = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
 function clearImages() { Object.keys(images).forEach(id => { URL.revokeObjectURL(images[id]); delete images[id] }) }
 function back() { generation++; active.value = null; detail.value = null; loadingDetail.value = false; error.value = ''; clearImages() }
@@ -61,21 +84,21 @@ onUnmounted(() => { generation++; clearImages() })
 <template>
   <section class="wf-panel experiment-records" :aria-label="active ? '实验记录详情' : '实验记录'">
     <template v-if="!active">
-      <header class="records-heading"><TablePageSize v-model="pageSize" label="实验记录每页条数" :disabled="loading" /><button type="button" class="btn btn-ghost" :disabled="loading" @click="emit('refresh')">{{ loading ? '正在加载…' : '刷新' }}</button></header>
-      <div class="records-filters">
-        <label>实验项目<select v-model="experiment" @change="group = ''"><option value="">全部项目</option><option v-for="[id, name] in experiments" :key="id" :value="id">{{ name }}</option></select></label>
-        <label>实验小组<select v-model="group"><option value="">全部小组</option><option v-for="name in groups" :key="name" :value="name">{{ name }}</option></select></label>
-        <label>班级<select v-model="selectedClass"><option value="">全部班级</option><option v-for="name in classes" :key="name">{{ name }}</option></select></label>
-        <label>记录状态<select v-model="status"><option value="">全部状态</option><option v-for="name in statuses" :key="name">{{ name }}</option></select></label>
-        <label class="records-search">搜索<input v-model="query" type="search" placeholder="姓名、学号或班级"></label>
-      </div>
+      <TableToolbar label="筛选实验记录" refresh-label="刷新实验记录" :loading="loading" :filtered="hasFilters" @refresh="emit('refresh')" @reset="resetFilters">
+        <label class="table-toolbar__search">搜索<input v-model="query" type="search" aria-label="搜索实验记录" placeholder="姓名、学号或班级"></label>
+        <label>实验项目<select v-model="experiment" aria-label="筛选实验项目"><option value="">全部项目</option><option v-for="[id, name] in experiments" :key="id" :value="id">{{ name }}</option></select></label>
+        <label>专业<select v-model="selectedMajor" aria-label="筛选专业"><option value="">全部专业</option><option v-for="name in majors" :key="name">{{ name }}</option></select></label>
+        <label>班级<select v-model="selectedClass" aria-label="筛选班级"><option value="">全部班级</option><option v-for="name in classes" :key="name">{{ name }}</option></select></label>
+        <label>记录状态<select v-model="status" aria-label="筛选记录状态"><option value="">全部状态</option><option v-for="name in statuses" :key="name">{{ name }}</option></select></label>
+      </TableToolbar>
       <div class="records-table-wrap" tabindex="0" aria-label="实验记录表格，可横向滚动">
         <table aria-label="实验记录列表">
-          <thead><tr><th scope="col">实验项目</th><th scope="col">实验小组</th><th scope="col">组员</th><th scope="col">班级</th><th scope="col">课次时间</th><th scope="col">子实验</th><th scope="col" class="records-number">操作分</th><th scope="col">记录状态</th><th scope="col">操作</th></tr></thead>
+          <thead><tr><th scope="col">实验项目</th><th scope="col">实验小组</th><th scope="col">组员</th><th scope="col">专业</th><th scope="col">班级</th><th scope="col">课次时间</th><th scope="col">子实验</th><th scope="col" class="records-number">操作分</th><th scope="col">记录状态</th><th scope="col">操作</th></tr></thead>
           <tbody>
             <tr v-for="row in pagedRows" :key="row.id">
               <td>{{ row.expName }}</td><td>{{ row.groupName }}<small>第 {{ row.attempt }} 次</small></td>
               <td class="records-members">{{ (row.members || []).map(member => member.name).join('、') || '—' }}<small>{{ (row.members || []).map(member => member.sid).join('、') }}</small></td>
+              <td><template v-if="rowMajors(row).length"><span v-for="major in rowMajors(row)" :key="major" class="records-profile-value">{{ major }}</span></template><span v-else>—</span></td>
               <td>{{ rowClasses(row).join('、') || '—' }}</td>
               <td>{{ row.timeText || stamp(row.createdAt) }}</td><td>{{ row.completedTrials || 0 }} / {{ row.trialTotal || 1 }}</td>
               <td class="records-number">{{ row.operationScore ?? '—' }}</td><td class="records-state-cell"><span class="records-status" :class="`records-status--${statusStyles[recordStatus(row)]}`">{{ recordStatus(row) }}</span></td>
@@ -85,7 +108,7 @@ onUnmounted(() => { generation++; clearImages() })
         </table>
       </div>
       <p v-if="!filtered.length" class="records-empty" role="status">{{ loading ? '正在加载实验记录…' : runs.length ? '没有符合条件的实验记录' : '暂无实验记录' }}</p>
-      <TablePagination v-model:page="page" class="records-pagination" :total="filtered.length" :page-size="pageSize" :disabled="loading" label="实验记录分页" />
+      <TablePagination v-model:page="page" class="records-pagination" :total="filtered.length" :page-size="pageSize" :disabled="loading" label="实验记录分页"><template #page-size><TablePageSize v-model="pageSize" compact label="实验记录每页条数" :disabled="loading" /></template></TablePagination>
     </template>
     <template v-else>
       <header class="records-detail-heading"><button type="button" class="btn btn-ghost" @click="back">返回列表</button></header>
@@ -98,17 +121,12 @@ onUnmounted(() => { generation++; clearImages() })
 
 <style scoped>
 .experiment-records{padding:24px 28px}
-.records-heading,.records-detail-heading{display:flex;align-items:center;justify-content:flex-end;gap:16px;margin-bottom:24px}
-.records-heading h2,.records-detail-heading h2{margin:0;font-size:21px}
-.records-detail-heading{justify-content:flex-start}.records-detail-heading h2{font-size:18px}
-.records-filters{display:grid;grid-template-columns:1.15fr .85fr 1fr 1fr 1.25fr;gap:16px}
-.records-filters label{display:grid;gap:7px;font-size:13px;color:#52666f}
-.records-filters input,.records-filters select{width:100%;min-width:0;box-sizing:border-box;height:40px;font:inherit;color:#243b45;background:#fff;border:1px solid #cddce1;border-radius:6px;padding:8px 10px}
-.records-heading { justify-content: space-between; }
-.records-filters { margin-bottom: 24px; }
+.records-detail-heading{display:flex;align-items:center;justify-content:flex-start;gap:16px;margin-bottom:24px}
+.records-detail-heading h2{margin:0;font-size:18px}
 .records-pagination { margin-top: 16px; padding-inline: 0; padding-bottom: 0; }
 .records-table-wrap{width:100%;overflow-x:auto;border:1px solid #c9d6df;border-radius:6px}
-.records-table-wrap table{width:100%;min-width:1100px;border-collapse:collapse;font-size:14px}
+.records-table-wrap table{width:100%;min-width:1240px;border-collapse:collapse;font-size:14px}
+.records-profile-value{display:block}
 .records-table-wrap th,.records-table-wrap td{text-align:left;vertical-align:top;padding:13px 12px;border:1px solid #d5dfe6;background:#fff;line-height:1.6}
 .records-table-wrap th{background:#edf2f6;color:#2c4351;font-weight:600;white-space:nowrap}
 .records-table-wrap tr:hover td{background:#f5f9fc}
@@ -132,6 +150,5 @@ onUnmounted(() => { generation++; clearImages() })
 .records-error{color:#9a3e2c}
 .experiment-records .btn{background-image:none;box-shadow:none}
 .records-detail-heading+.wf-op-doc{max-width:none}
-@media(max-width:1000px){.records-filters{grid-template-columns:1fr 1fr 1fr}.records-search{grid-column:2/-1}}
-@media(max-width:520px){.experiment-records{padding:20px 16px}.records-heading{margin-bottom:20px}.records-filters{grid-template-columns:1fr 1fr;gap:12px}.records-search{grid-column:1/-1}.records-detail-heading{flex-wrap:wrap}.records-table-wrap th,.records-table-wrap td{padding:12px 10px}}
+@media(max-width:520px){.experiment-records{padding:20px 16px}.records-detail-heading{flex-wrap:wrap}.records-table-wrap th,.records-table-wrap td{padding:12px 10px}}
 </style>

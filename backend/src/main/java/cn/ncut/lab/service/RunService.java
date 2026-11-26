@@ -18,7 +18,8 @@ import java.util.*;
 public class RunService {
     final JdbcTemplate db;
     final WanceDataService wance;
-    public RunService(JdbcTemplate db, WanceDataService wance) { this.db=db; this.wance=wance; }
+    final TaskSchedule schedule;
+    public RunService(JdbcTemplate db, WanceDataService wance) { this.db=db; this.wance=wance; this.schedule=new TaskSchedule(db); }
     public JdbcTemplate jdbc() { return db; }
     public List<String> validateTrials(Object value) {
         if(value==null)return ExperimentCatalog.TRIAL_IDS;
@@ -47,18 +48,8 @@ public class RunService {
         var tasks=db.queryForList("SELECT teacher FROM tasks WHERE id=?",taskId);
         if(tasks.isEmpty())throw new ApiException(404,"课次不存在");
         if(!actor.id().equals(str(tasks.get(0).get("teacher"))))throw new ApiException(403,"仅下发教师可开始本课次");
-        var rows=db.queryForList("SELECT payload FROM task_configs WHERE task_id=? FOR UPDATE",taskId);
-        Map<String,Object> config=rows.isEmpty()?new LinkedHashMap<>():JsonUtil.readMap(str(rows.get(0).get("payload")),new LinkedHashMap<>());
-        if(!"scheduled".equals(config.get("lessonState")))return Map.of("ok",true);
         provision(taskId);
-        for(var row:db.queryForList("SELECT id FROM experiment_runs WHERE task_id=? AND parent_id IS NULL",taskId)) {
-            var run=load(str(row.get("id")),actor,true);
-            if(!"scheduled".equals(run.get("lessonState")))continue;
-            run.put("lessonState","active");run.put("classOpen",true);run.put("startedAt",now());
-            save(run,actor,"开始本课次实验");
-        }
-        config.put("lessonState","active");config.put("startedAt",now());
-        db.update("UPDATE task_configs SET payload=? WHERE task_id=?",JsonUtil.write(config),taskId);
+        schedule.openManually(taskId,actor.id());
         return Map.of("ok",true);
     }
     private void initializeClassroom(Map<String,Object> r,Map<String,Object> task) {
@@ -82,9 +73,17 @@ public class RunService {
         var latest=reports.stream().max(Comparator.comparingInt(p->((Number)p.get("version")).intValue())).orElse(Map.of());
         String state=!latest.isEmpty()&&!Boolean.TRUE.equals(latest.get("returned"))?"submitted":Boolean.TRUE.equals(r.get("archived"))?"lab_done":"pending".equals(r.get("status"))?"assigned":"in_lab";
         student.put("status",state);student.put("groupName",r.get("groupName"));student.put("workflowRunId",r.get("id"));student.put("requiredTrials",r.get("requiredTrials"));
-        student.put("operationScore",r.get("operationScore"));student.put("personalScore",latest.get("finalScore"));student.put("personalComment",latest.get("finalComment"));
+        student.put("operationScore",r.get("operationScore"));student.put("personalScore",latest.get("finalScore"));student.put("personalComment",latest.get(Boolean.TRUE.equals(latest.get("returned"))?"returnReason":"finalComment"));
         student.put("lessonState",r.getOrDefault("lessonState","active"));
+        student.put("scheduledStartAt",r.get("scheduledStartAt"));
         student.put("teacherScoreConfirmationRequired",r.get("teacherScoreConfirmationRequired"));
+        for(String key:List.of("archived","classOpen","myScoreConfirmed","retakeRequest"))student.put(key,r.get(key));
+        var trialItems=list(r.get("trialItems"));
+        int trialTotal=trialItems.isEmpty()?1:trialItems.size();
+        long completedTrials=trialItems.isEmpty()?(!map(r.get("data")).isEmpty()&&!list(r.get("photos")).isEmpty()?1:0)
+                :trialItems.stream().filter(t->Boolean.TRUE.equals(t.get("dataReady"))&&Boolean.TRUE.equals(t.get("photoReady"))).count();
+        student.put("trialTotal",trialTotal);student.put("completedTrials",completedTrials);student.put("collectionComplete",completedTrials==trialTotal);
+        student.put("personalReportState",latest.isEmpty()?"none":Boolean.TRUE.equals(latest.get("returned"))?"returned":latest.get("finalScore")!=null?"graded":"submitted");
         snapshot.put("mates",r.get("members"));
     }
     static String id() { return UUID.randomUUID().toString(); }
@@ -103,10 +102,14 @@ public class RunService {
     }
     Map<String,Object> load(String runId,Actor a,boolean lock) {
         authorize(runId,a);
-        List<Map<String,Object>> rows=db.queryForList("SELECT * FROM experiment_runs WHERE id=?"+(lock?" FOR UPDATE":""),runId);
+        List<Map<String,Object>> rows=db.queryForList("SELECT * FROM experiment_runs WHERE id=?",runId);
         if(rows.isEmpty()) throw new ApiException(404,"实验记录不存在");
+        var initial=JsonUtil.readMap(str(rows.get(0).get("payload")),new LinkedHashMap<>());
+        boolean opened="scheduled".equals(initial.get("lessonState"))&&schedule.openIfDue(str(initial.get("taskId")));
+        if(lock||opened)rows=db.queryForList("SELECT * FROM experiment_runs WHERE id=? FOR UPDATE",runId);
         Map<String,Object> r=JsonUtil.readMap(str(rows.get(0).get("payload")),new LinkedHashMap<>());
         r.put("id",runId); r.put("revision",rows.get(0).get("revision"));
+        r.put("scheduledStartAt",TaskSchedule.startTime(r.get("timeText")).map(Instant::toString).orElse(""));
         var attributes = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
         String trial = attributes instanceof org.springframework.web.context.request.ServletRequestAttributes request ? request.getRequest().getParameter("trial") : null;
         TrialRecords.project(r, trial);
@@ -120,7 +123,7 @@ public class RunService {
         if(updated!=1) throw new ApiException(409,"记录已更新，请刷新后重试"); run.put("revision",revision+1);
     }
     void mutable(Map<String,Object> run) {
-        if("scheduled".equals(run.get("lessonState")))throw new ApiException(409,"本课次尚未开始，请等待教师开课");
+        if("scheduled".equals(run.get("lessonState")))throw new ApiException(409,str(run.get("scheduledStartAt")).isEmpty()?"本课次尚未开始，请等待教师开课":"尚未到开课时间，到时自动开放采集");
         if(Boolean.TRUE.equals(run.get("archived"))) throw new ApiException(409,"操作记录已提交；请由教师退回后修改");
         if(!Boolean.TRUE.equals(run.get("classOpen"))) throw new ApiException(409,"教师已确认扣分；如需修改实验数据，请先联系教师重新开放记录");
     }
@@ -281,7 +284,7 @@ public class RunService {
             try {
                 Map<String,Object> r=load(str(row.get("id")),actor,false);
                 Map<String,Object> s=new LinkedHashMap<>();
-                for(String key:List.of("id","taskId","groupName","expName","expId","timeText","place","attempt","status","createdAt","members","classOpen","archived","retakeRequest","requiredTrials","lessonState")) s.put(key,r.get(key));
+                for(String key:List.of("id","taskId","groupName","expName","expId","timeText","place","attempt","status","createdAt","members","classOpen","archived","retakeRequest","requiredTrials","lessonState","scheduledStartAt")) s.put(key,r.get(key));
                 List<Map<String,Object>> trialItems=TrialRecords.combined(r)?TrialRecords.items(r):List.of();
                 int trialTotal=TrialRecords.combined(r)?trialItems.size():1;
                 int completedTrials=TrialRecords.combined(r)
@@ -339,7 +342,7 @@ public class RunService {
     public Map<String,Object> classroom(String id,Actor a) {
         Map<String,Object> r=load(id,a,false),out=new LinkedHashMap<>();
         ClassroomService.expose(r,a);
-        for(String key:List.of("deductions","classOpen","finalScore","finalComment","revision","archived","archivedAt","scorePublishedAt","scoreVersion","confirmationRequired","myScoreConfirmed","myConfirmation","retakeRequest","lessonState","teacherScoreConfirmationRequired","scorePublicationMode","scoreReady"))out.put(key,r.get(key));
+        for(String key:List.of("deductions","classOpen","finalScore","finalComment","revision","archived","archivedAt","scorePublishedAt","scoreVersion","confirmationRequired","myScoreConfirmed","myConfirmation","retakeRequest","lessonState","scheduledStartAt","teacherScoreConfirmationRequired","scorePublicationMode","scoreReady"))out.put(key,r.get(key));
         out.put("operationScore",operationScore(r));out.put("calculatedScore",calculatedScore(r));return out;
     }
     public Map<String,Object> legacy(String id,Actor a) {

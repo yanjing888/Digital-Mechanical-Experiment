@@ -56,7 +56,7 @@ public class RosterAssignmentService {
         String taskId=RunService.str(task.get("id"));
         runs.scheduleTask(taskId,trials,teacherScoreConfirmationRequired);
         runs.provision(taskId);
-        task.put("lessonState","scheduled");
+        task.put("lessonState",runs.schedule.openIfDue(taskId)?"active":"scheduled");
         task.put("teacherScoreConfirmationRequired",teacherScoreConfirmationRequired);
         return Map.of("task",task,"tasks",store.listTasks());
     }

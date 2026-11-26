@@ -9,7 +9,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class GradebookExporterTest {
     private Map<String,Object> student(String sid,String name,String cls,Map<String,Object> scores) {
-        return Map.of("sid",sid,"name",name,"cls",cls,"scores",scores);
+        return student(sid,name,cls,"",scores);
+    }
+    private Map<String,Object> student(String sid,String name,String cls,String major,Map<String,Object> scores) {
+        return Map.of("sid",sid,"name",name,"cls",cls,"major",major,"scores",scores);
     }
     private Map<String,Object> book(List<Map<String,Object>> students) {
         return Map.of("experiments",List.of(Map.of("id","combined","name","拉伸压缩实验"),Map.of("id","torsion","name","扭转实验")),"students",students);
@@ -19,21 +22,22 @@ class GradebookExporterTest {
         byte[] bytes=new GradebookExporter().export(book(List.of(student("00123456789012345678","学生甲","土木一班",scores))),"","");
         try(var wb=new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
             var sheet=wb.getSheet("实验成绩总表");var row=sheet.getRow(3);
-            assertEquals("00123456789012345678",row.getCell(2).getStringCellValue());assertEquals(CellType.STRING,row.getCell(2).getCellType());
-            assertEquals(CellType.NUMERIC,row.getCell(3).getCellType());assertEquals(92.5,row.getCell(3).getNumericCellValue());
-            assertEquals(87,row.getCell(4).getNumericCellValue());assertEquals("已完成",row.getCell(5).getStringCellValue());
-            assertEquals(CellType.BLANK,row.getCell(6).getCellType());assertEquals(CellType.BLANK,row.getCell(7).getCellType());
-            assertEquals("未开课",row.getCell(8).getStringCellValue());
-            assertEquals(3,sheet.getPaneInformation().getHorizontalSplitPosition());assertEquals(3,sheet.getPaneInformation().getVerticalSplitPosition());
-            assertEquals("A3:I4",sheet.getCTWorksheet().getAutoFilter().getRef());
-            assertEquals("拉伸压缩实验\n操作成绩",sheet.getRow(2).getCell(3).getStringCellValue());
+            assertEquals("专业",sheet.getRow(2).getCell(0).getStringCellValue());assertEquals("未填写",row.getCell(0).getStringCellValue());
+            assertEquals("00123456789012345678",row.getCell(3).getStringCellValue());assertEquals(CellType.STRING,row.getCell(3).getCellType());
+            assertEquals(CellType.NUMERIC,row.getCell(4).getCellType());assertEquals(92.5,row.getCell(4).getNumericCellValue());
+            assertEquals(87,row.getCell(5).getNumericCellValue());assertEquals("已完成",row.getCell(6).getStringCellValue());
+            assertEquals(CellType.BLANK,row.getCell(7).getCellType());assertEquals(CellType.BLANK,row.getCell(8).getCellType());
+            assertEquals("未开课",row.getCell(9).getStringCellValue());
+            assertEquals(3,sheet.getPaneInformation().getHorizontalSplitPosition());assertEquals(4,sheet.getPaneInformation().getVerticalSplitPosition());
+            assertEquals("A3:J4",sheet.getCTWorksheet().getAutoFilter().getRef());
+            assertEquals("拉伸压缩实验\n操作成绩",sheet.getRow(2).getCell(4).getStringCellValue());
         }
     }
     @Test void classAndSearchFiltersMatchTheVisibleRows() throws Exception {
         var data=book(List.of(student("001","Alice","土木一班",Map.of()),student("002","Alice","土木二班",Map.of()),student("003","Bob","土木一班",Map.of())));
         try(var wb=new XSSFWorkbook(new ByteArrayInputStream(new GradebookExporter().export(data,"土木一班"," ALICE ")))) {
             var sheet=wb.getSheetAt(0);assertEquals(4,sheet.getPhysicalNumberOfRows());
-            assertEquals("001",sheet.getRow(3).getCell(2).getStringCellValue());
+            assertEquals("001",sheet.getRow(3).getCell(3).getStringCellValue());
             assertTrue(sheet.getRow(1).getCell(0).getStringCellValue().contains("共 1 人"));
         }
     }
@@ -47,8 +51,30 @@ class GradebookExporterTest {
     @Test void importedNamesAreWrittenAsTextRatherThanExcelFormulas() throws Exception {
         var data=book(List.of(student("0001","=1+1","土木一班",Map.of())));
         try(var wb=new XSSFWorkbook(new ByteArrayInputStream(new GradebookExporter().export(data,"","")))) {
-            var cell=wb.getSheetAt(0).getRow(3).getCell(1);
+            var cell=wb.getSheetAt(0).getRow(3).getCell(2);
             assertEquals(CellType.STRING,cell.getCellType());assertEquals("=1+1",cell.getStringCellValue());
+        }
+    }
+    @Test void majorClassAndSearchFiltersAreAppliedTogether() throws Exception {
+        var data=book(List.of(student("001","Alice","综合一班","土木工程",Map.of()),student("002","Alice","综合一班","机械工程",Map.of()),student("003","Bob","综合一班","土木工程",Map.of()),student("004","Alice","综合二班","土木工程",Map.of())));
+        try(var wb=new XSSFWorkbook(new ByteArrayInputStream(new GradebookExporter().export(data,"综合一班"," ALICE ","土木工程")))) {
+            var sheet=wb.getSheetAt(0);assertEquals(4,sheet.getPhysicalNumberOfRows());
+            assertEquals("土木工程",sheet.getRow(3).getCell(0).getStringCellValue());assertEquals("001",sheet.getRow(3).getCell(3).getStringCellValue());
+            assertTrue(sheet.getRow(1).getCell(0).getStringCellValue().contains("专业：土木工程"));
+        }
+    }
+    @Test void missingMajorFilterMatchesBlankAndNullProfiles() throws Exception {
+        var missing=new LinkedHashMap<>(student("002","学生乙","综合一班",Map.of()));missing.remove("major");
+        var data=book(List.of(student("001","学生甲","综合一班","  ",Map.of()),missing,student("003","学生丙","综合一班","机械工程",Map.of())));
+        try(var wb=new XSSFWorkbook(new ByteArrayInputStream(new GradebookExporter().export(data,"","","未填写专业")))) {
+            var sheet=wb.getSheetAt(0);assertEquals(5,sheet.getPhysicalNumberOfRows());
+            assertEquals("未填写",sheet.getRow(3).getCell(0).getStringCellValue());assertEquals("未填写",sheet.getRow(4).getCell(0).getStringCellValue());
+        }
+    }
+    @Test void searchCanMatchMajorWithoutSelectingIt() throws Exception {
+        var data=book(List.of(student("001","学生甲","综合一班","土木工程",Map.of()),student("002","学生乙","综合一班","机械工程",Map.of())));
+        try(var wb=new XSSFWorkbook(new ByteArrayInputStream(new GradebookExporter().export(data,"","土木工程")))) {
+            assertEquals(4,wb.getSheetAt(0).getPhysicalNumberOfRows());assertEquals("001",wb.getSheetAt(0).getRow(3).getCell(3).getStringCellValue());
         }
     }
 }

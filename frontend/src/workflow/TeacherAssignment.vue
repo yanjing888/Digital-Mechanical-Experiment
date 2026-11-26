@@ -185,13 +185,7 @@ function resetPassword(student) {
     <ToastNotice :message="error || message" :type="error ? 'error' : 'success'" @close="error='';message=''" />
     <div class="ra-workspace" :class="{'ra-workspace--assignment': !manage}">
       <section class="ra-roster" :class="{'ra-management': manage}" :aria-label="manage ? '学生名单' : '选择学生'">
-        <header class="ra-heading ra-roster-heading">
-          <h2>{{ manage ? '学生名单' : '选择学生' }}</h2>
-          <div v-if="manage" class="ra-actions">
-            <button type="button" class="btn btn-ghost" :disabled="busy" @click="run(()=>api.downloadRosterTemplate())">下载模板</button>
-            <label class="btn btn-primary ra-upload">上传名单<input type="file" accept=".xlsx,.xls" :disabled="busy" @change="uploadRoster"></label>
-          </div>
-        </header>
+        <header v-if="!manage" class="ra-heading ra-roster-heading"><h2>选择学生</h2></header>
         <div class="ra-filterbar">
           <div class="ra-filters">
           <input v-model="query" type="search" aria-label="搜索学生" placeholder="搜索姓名、学号">
@@ -203,6 +197,10 @@ function resetPassword(student) {
             <button v-if="status" type="button" class="ra-active-filter" :disabled="busy" :aria-label="'清除安排状态筛选：' + statusLabel" @click="status=''">{{statusLabel}}<span aria-hidden="true">×</span></button>
             <button v-if="hasFilters" type="button" class="ra-text-action" :disabled="busy" @click="resetFilters">重置</button>
             <button type="button" class="ra-refresh" :disabled="busy" aria-label="刷新名单" title="刷新名单" @click="refreshRoster"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M19.2 12a7.2 7.2 0 1 0-1.8 4.8M20 12l-2.6-5"/></svg></button>
+          </div>
+          <div v-if="manage" class="ra-actions">
+            <button type="button" class="btn btn-ghost" :disabled="busy" @click="run(()=>api.downloadRosterTemplate())">下载模板</button>
+            <label class="btn btn-primary ra-upload">上传名单<input type="file" accept=".xlsx,.xls" :disabled="busy" @change="uploadRoster"></label>
           </div>
         </div>
         <div v-if="selected.size" class="ra-selection">
@@ -254,7 +252,7 @@ function resetPassword(student) {
         <div class="ra-form-pair"><label>每组人数<select v-model.number="size"><option v-for="n in [1,2,3,4,5,6,8,10]" :key="n" :value="n">{{n}} 人</option></select></label><button type="button" class="btn btn-ghost ra-preview" :disabled="!chosen.length || busy" aria-haspopup="dialog" @click="autoGroup">自动分组</button></div>
         <button type="button" class="ra-text-action" :disabled="!chosen.length || busy" aria-haspopup="dialog" @click="preview.showModal()">{{groupEdited?'查看已调整分组':'预览 / 调整分组'}}</button>
         <div class="ra-form-pair ra-schedule">
-          <label>实验时间<div class="ra-date" :class="{'is-empty':!form.timeText}"><span v-if="!form.timeText">选择日期与时间</span><input v-model="form.timeText" type="datetime-local" aria-label="实验时间" @click="$event.target.showPicker?.()"></div></label>
+          <label><span>实验时间 <small>到时自动开放</small></span><div class="ra-date" :class="{'is-empty':!form.timeText}"><span v-if="!form.timeText">选择日期与时间</span><input v-model="form.timeText" type="datetime-local" aria-label="实验时间（北京时间，到时自动开放）" @click="$event.target.showPicker?.()"></div></label>
           <label>地点<input v-model="form.place" placeholder="实验地点" maxlength="255"></label>
         </div>
         <section class="ra-confirm-policy" aria-labelledby="teacher-score-policy-title">
@@ -314,7 +312,7 @@ function resetPassword(student) {
               </td>
               <td class="ra-centered"><span class="ra-task-state" :data-state="task.lessonState">{{taskStates[task.lessonState] || '进行中'}}</span></td>
               <td v-if="canStartSomeTasks" class="ra-centered">
-                <button v-if="task.lessonState==='scheduled'" type="button" class="ra-text-action" :disabled="busy" @click="start(task)">开始实验</button>
+                <button v-if="task.lessonState==='scheduled'" type="button" class="ra-text-action" :disabled="busy" @click="start(task)">立即开课</button>
               </td>
             </tr>
             <tr v-if="!visibleTasks.length"><td :colspan="canStartSomeTasks ? 6 : 5" class="ra-empty">{{taskStateFilter ? '当前状态下暂无任务' : '暂无实验安排'}}</td></tr>
@@ -482,6 +480,8 @@ function resetPassword(student) {
 .ra-management .ra-table { min-width: 820px; }
 .ra-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ra-roster-heading { flex-wrap: wrap; }
+.ra-schedule label small { color: var(--ra-muted); font-size: 12px; font-weight: 400; }
+.ra-page--management .ra-filterbar { padding-top: 16px; }
 .ra-upload { position: relative; cursor: pointer; }
 .ra-upload:not(:has(input:disabled)):hover { background: var(--action-hover); }
 .ra-upload:not(:has(input:disabled)):active { background: var(--action-pressed); }

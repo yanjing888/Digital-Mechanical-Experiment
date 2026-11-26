@@ -652,6 +652,10 @@ public class StoreService {
             var configs=jdbc.queryForList("SELECT payload FROM task_configs WHERE task_id=?",t.get("id"));
             var config=configs.isEmpty()?Map.<String,Object>of():JsonUtil.readMap(str(configs.get(0).get("payload")),Map.of());
             String lessonState=str(config.getOrDefault("lessonState","active"));
+            if("scheduled".equals(lessonState)&&new TaskSchedule(jdbc).openIfDue(str(t.get("id")))) {
+                var updated=jdbc.queryForList("SELECT payload FROM task_configs WHERE task_id=?",t.get("id"));
+                if(!updated.isEmpty())lessonState=str(JsonUtil.readMap(str(updated.get(0).get("payload")),Map.of()).get("lessonState"));
+            }
             var records = jdbc.queryForList("SELECT group_id,parent_id,payload FROM experiment_runs WHERE task_id=?", t.get("id"));
             Map<String, String> groupNames = new LinkedHashMap<>();
             boolean anyOpen = false;

@@ -69,6 +69,7 @@ class WorkflowTest {
         db.update("INSERT INTO task_groups VALUES('task','g1'),('task','g2')");
         db.update("INSERT INTO students(sid,name,task_id,group_id) VALUES('s1','学生甲','task','g1'),('s2','学生乙','task','g1'),('s3','学生丙','task','g2')");
         db.execute("ALTER TABLE students ADD cls VARCHAR(64) DEFAULT '土木一班'");
+        db.execute("ALTER TABLE students ADD major VARCHAR(128)");
         runs.provision("task");runId=str(runs.runs(student).get(0).get("id"));
     }
     @Test void scheduledTasksAreViewableButCannotCollectUntilOwnerStartsAllGroups() throws Exception {
@@ -94,6 +95,34 @@ class WorkflowTest {
         assertEquals(revision,runs.detail(future,student).get("revision"));
         assertEquals(1,list(runs.detail(future,student).get("photos")).size());
         assertEquals(true,runs.detail(runId,student).get("classOpen"));
+    }
+    String timedTask(String time) {
+        db.update("INSERT INTO tasks(id,exp_id,exp_name,time_text) VALUES('timed','TENS','材料拉伸',?)",time);
+        db.update("INSERT INTO task_groups VALUES('timed','g1'),('timed','g2')");
+        db.update("UPDATE students SET task_id='timed'");
+        runs.scheduleTask("timed",List.of("STEEL_TENS"));runs.provision("timed");
+        return RunService.runIdFor("timed","g1");
+    }
+    @Test void studentLoginAutomaticallyOpensDueLessonForEveryGroup() {
+        String id=timedTask(java.time.Instant.now().minusSeconds(3600).toString());
+        Map<String,Object> studentInfo=new LinkedHashMap<>(Map.of("sid","s1","taskId","timed"));
+        Map<String,Object> snapshot=body("student",studentInfo);
+        runs.enrichStudentSession(snapshot);
+        assertEquals("active",studentInfo.get("lessonState"));assertEquals(true,studentInfo.get("classOpen"));
+        assertFalse(str(studentInfo.get("scheduledStartAt")).isBlank());
+        assertEquals(true,runs.classroom(RunService.runIdFor("timed","g2"),outsider).get("classOpen"));
+        assertEquals("automatic",runs.detail(id,student).get("startMode"));
+    }
+    @Test void dueTimeIsEnforcedByCollectionApiAndBackgroundPollWithoutTeacherAction() throws Exception {
+        String id=timedTask(java.time.Instant.now().plusSeconds(3600).toString());
+        assertEquals("scheduled",runs.classroom(id,student).get("lessonState"));
+        assertEquals(409,assertThrows(ApiException.class,()->runs.photo(id,student,photo(),"正面")).getStatus());
+        db.update("UPDATE tasks SET time_text=? WHERE id='timed'",java.time.Instant.now().minusSeconds(60).toString());
+        assertEquals(403,assertThrows(ApiException.class,()->runs.detail(id,outsider)).getStatus());
+        assertEquals("scheduled",JsonUtil.readMap(db.queryForObject("SELECT payload FROM task_configs WHERE task_id='timed'",String.class),Map.of()).get("lessonState"));
+        runs.photo(id,student,photo(),"正面");
+        assertEquals("active",runs.classroom(id,mate).get("lessonState"));
+        assertEquals(1,list(runs.detail(id,student).get("photos")).size());
     }
     @Test void scoreConfirmationBelongsToEachStudentAndExpiresAfterCorrection() throws Exception {
         legacyArchive();configure();
@@ -218,6 +247,7 @@ class WorkflowTest {
         assertEquals(true,detail.get("myScoreConfirmed"));
     }
     @Test void gradebookListsAllExperimentsAndPublishedStudentScores() throws Exception {
+        db.update("UPDATE students SET major='土木工程' WHERE sid='s1'");
         legacyArchive();submit(student,"gradebook-report");
         var report=list(runs.detail(runId,teacher).get("reports")).get(0);
         var gradeBody=body("action","grade");gradeBody.put("score",91);gradeBody.put("comment","报告完整");
@@ -225,6 +255,7 @@ class WorkflowTest {
         var gradebook=desk.gradebook(teacher);
         assertEquals(3,list(gradebook.get("experiments")).size());
         var row=list(gradebook.get("students")).stream().filter(s->"s1".equals(s.get("sid"))).findFirst().orElseThrow();
+        assertEquals("土木工程",row.get("major"));
         var score=map(map(row.get("scores")).get(ExperimentCatalog.COMBINED));
         assertEquals(100.0,score.get("operationScore"));assertEquals(91.0,score.get("reportScore"));assertEquals("已完成",score.get("status"));
         assertThrows(ApiException.class,()->desk.gradebook(student));
@@ -277,6 +308,18 @@ class WorkflowTest {
         String other=str(runs.runs(outsider).get(0).get("id"));
         assertEquals(409,assertThrows(ApiException.class,()->runs.importData(other,outsider,csv(),2,1,0,"N")).getStatus());
     }
+    @Test void reportDeskResolvesMissingMajorAndPreservesHistoricalProfiles() {
+        db.update("UPDATE students SET major='土木工程' WHERE sid IN ('s1','s2')");
+        db.update("UPDATE students SET major='机械工程' WHERE sid='s3'");
+        var roster=desk.roster("task",teacher);
+        assertEquals("土木工程",roster.stream().filter(row->"s1".equals(row.get("sid"))).findFirst().orElseThrow().get("major"));
+        assertEquals("机械工程",roster.stream().filter(row->"s3".equals(row.get("sid"))).findFirst().orElseThrow().get("major"));
+        var run=runs.load(runId,teacher,false);list(run.get("members")).get(0).put("major","历史专业");runs.save(run,teacher,"保留历史成员资料");
+        db.update("UPDATE students SET major=NULL WHERE sid='s3'");
+        roster=desk.roster("task",teacher);
+        assertEquals("历史专业",roster.stream().filter(row->"s1".equals(row.get("sid"))).findFirst().orElseThrow().get("major"));
+        assertEquals("",roster.stream().filter(row->"s3".equals(row.get("sid"))).findFirst().orElseThrow().get("major"));
+    }
     @Test void reportDeskIncludesWholeTaskAndLocatesOriginalText() throws Exception {
         legacyArchive();submit(student,"desk-1");submit(mate,"desk-2");
         var roster=desk.roster("task",teacher);assertEquals(3,roster.size());
@@ -303,13 +346,20 @@ class WorkflowTest {
         Map<String,Object> studentInfo=new LinkedHashMap<>(Map.of("sid","s1","taskId","task","status","assigned"));
         Map<String,Object> session=new LinkedHashMap<>();session.put("student",studentInfo);
         legacyArchive();runs.enrichStudentSession(session);assertEquals("lab_done",studentInfo.get("status"));
+        assertEquals(true,studentInfo.get("archived"));assertEquals(true,studentInfo.get("collectionComplete"));
+        assertEquals(1,studentInfo.get("trialTotal"));assertEquals(1L,studentInfo.get("completedTrials"));
+        assertEquals("none",studentInfo.get("personalReportState"));
         submit(student,"home-report");runs.enrichStudentSession(session);assertEquals("submitted",studentInfo.get("status"));
+        assertEquals("submitted",studentInfo.get("personalReportState"));
         assertEquals(2,list(session.get("mates")).size());
         var report=list(runs.detail(runId,student).get("reports")).get(0);
         assertEquals(100.0,map(report.get("runSnapshot")).get("operationScore"));
         assertEquals("confirmed",map(map(report.get("runSnapshot")).get("scoreConfirmation")).get("status"));
+        var grade=body("action","grade");grade.put("score",88);grade.put("comment","分析完整");teaching.review(runId,str(report.get("id")),teacher,grade);
+        runs.enrichStudentSession(session);assertEquals("graded",studentInfo.get("personalReportState"));assertEquals(88.0,studentInfo.get("personalScore"));
         var b=body("action","return");b.put("comment","补充分析");teaching.review(runId,str(report.get("id")),teacher,b);
         runs.enrichStudentSession(session);assertEquals("lab_done",studentInfo.get("status"));
+        assertEquals("returned",studentInfo.get("personalReportState"));assertEquals("补充分析",studentInfo.get("personalComment"));
     }
     @Test void newTaskUsesSelectedTrialsAndPreservesPreviousLesson() {
         db.update("INSERT INTO tasks VALUES('next-task',?,'拉伸压缩实验','第二节')",ExperimentCatalog.COMBINED);

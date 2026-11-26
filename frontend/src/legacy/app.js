@@ -1,5 +1,5 @@
 import { api } from '../api.js'
-import { mountWorkflow, unmountWorkflow, mountTeacherAssignment } from '../workflow/mount.js'
+import { mountWorkflow, unmountWorkflow, mountTeacherAssignment, mountStudentTaskCenter } from '../workflow/mount.js'
 
 export function bootApp() {
   var PAGE_KEY = 'lab-platform-page';
@@ -871,7 +871,7 @@ export function bootApp() {
   /* ========== Pages ========== */
   function pageAdminTeachers() {
     var teachers = ui.teachers || [];
-    return '<section class="card dash-card admin-content"><div class="dash-card-head"><div><h3 class="dash-card-title">教师列表</h3><span class="sub">共 ' + teachers.length + ' 位</span></div><button type="button" class="btn btn-primary btn-sm" id="btn-add-teacher">新增教师</button></div><div class="dispatch-table-wrap"><table class="dispatch-table"><thead><tr><th>账号</th><th>姓名</th><th>状态</th><th>操作</th></tr></thead><tbody>'
+    return '<section class="card dash-card admin-content" aria-label="教师账号"><div class="dash-card-head"><span class="sub">共 ' + teachers.length + ' 位</span><button type="button" class="btn btn-primary btn-sm" id="btn-add-teacher">新增教师</button></div><div class="dispatch-table-wrap"><table class="dispatch-table"><thead><tr><th>账号</th><th>姓名</th><th>状态</th><th>操作</th></tr></thead><tbody>'
       + teachers.map(function (t) { return '<tr><td><strong>' + esc(t.username || '—') + '</strong></td><td>' + esc(t.name) + '</td><td>' + (t.active ? '<span class="tag ok">启用</span>' : '<span class="tag muted">停用</span>') + '</td><td><div class="row" style="gap:8px"><button type="button" class="btn btn-ghost btn-sm btn-rename-teacher" data-id="' + esc(t.id) + '" data-name="' + esc(t.name) + '">修改姓名</button><button type="button" class="btn btn-ghost btn-sm btn-reset-teacher" data-id="' + esc(t.id) + '">重置密码</button><button type="button" class="btn btn-ghost btn-sm btn-toggle-teacher" data-id="' + esc(t.id) + '" data-active="' + (t.active ? '1' : '0') + '">' + (t.active ? '停用' : '启用') + '</button></div></td></tr>'; }).join('')
       + '</tbody></table></div></section>';
   }
@@ -980,78 +980,6 @@ export function bootApp() {
                 : '<div style="padding:2rem 1rem;text-align:center;color:var(--muted)">' + emptyTip + '</div>')
           + '</div>'
           : emptyPanel('📭', '暂无可评阅学生', '下发任务后，学生提交报告即可在此评阅。'));
-  }
-
-  function pageStudentHome() {
-    var s = stu();
-    if (!s) return '<p>未找到学生</p>';
-    if (!s.taskId || s.status === 'none') {
-      return '<section class="student-waiting"><h2>暂无实验安排</h2><button type="button" class="btn btn-ghost" id="btn-refresh-task">刷新安排</button></section>';
-    }
-    var mateList = (ui.snap.mates || []).map(function (m) {
-      return '<div class="mate-chip"><span class="mate-avatar">' + esc(m.name.charAt(0)) + '</span><span>' + esc(m.name) + ' · ' + esc(m.sid) + (m.cls ? ' · ' + esc(m.cls) : '') + '</span></div>';
-    }).join('');
-
-    var awaitingStart = s.lessonState === 'scheduled';
-    var cta = awaitingStart
-      ? '<button type="button" class="btn btn-ghost btn-lg" id="btn-refresh-task">刷新安排</button>'
-      : s.status === 'assigned'
-      ? '<button type="button" class="btn btn-primary btn-lg" id="btn-start-lab">开始采集</button>'
-      : (s.status === 'in_lab'
-          ? '<button type="button" class="btn btn-primary btn-lg" id="btn-go-lab">继续采集</button>'
-          : '<button type="button" class="btn btn-primary btn-lg" id="btn-go-report">查看报告</button>');
-    var nextHint = s.status === 'assigned'
-      ? '导入设备实验数据、采集断口图像并提交操作记录。'
-      : (s.status === 'in_lab'
-          ? '在「资料采集」页继续导入数据、采集断口图像。'
-          : (s.status === 'lab_done'
-              ? '前往「报告」查看实验操作记录并撰写个人报告。'
-              : '全部流程已完成，可查看教师评分。'));
-
-    var stepNum = s.status === 'assigned' ? 1 : (s.status === 'in_lab' ? 2 : (s.status === 'lab_done' ? 3 : 4));
-    var stepTitle = ['', '待开始采集', '采集进行中', '待提交报告', '已完成'][stepNum];
-    if (awaitingStart) stepTitle = '待开课';
-    var stepDesc = [
-      '',
-      '任务已下发，在原设备软件完成实验后，导入数据并采集断口图像',
-      '正在导入实验数据与采集断口图像',
-      '资料采集已完成，正在撰写个人报告',
-      '报告已提交，等待教师评阅'
-    ][stepNum];
-
-    return ''
-      + '<div class="stu-hero-card">'
-      +   '<div class="stu-hero-left">'
-      +     '<div class="stu-exp-badge">实验项目</div>'
-      +     '<h2 class="stu-exp-name">' + esc(s.expName) + '</h2>'
-      +     '<div class="stu-exp-meta">'
-      +       '<span class="sem-item"><span class="ico">⏰</span>' + esc(s.timeText || '待定') + '</span>'
-      +       '<span class="sem-item"><span class="ico">📍</span>' + esc(s.place || '待定') + '</span>'
-      +       '<span class="sem-item"><span class="ico">👥</span>' + esc(s.groupName) + '</span>'
-      +     '</div>'
-      +   '</div>'
-      +   '<div class="stu-hero-right">'
-      +     '<div class="stu-status-badge ' + esc(s.status) + '">'
-      +       '<span class="ssb-dot"></span>'
-      +       '<span class="ssb-text">' + stepTitle + '</span>'
-      +     '</div>'
-      +     cta
-      +   '</div>'
-      + '</div>'
-
-      + '<div class="dashboard-grid">'
-      // 左侧主区
-      +   '<div class="dash-main">'
-      +     '<div class="card dash-card">'
-      +       studentJourney(s.status)
-      +     '</div>'
-      +     '<div class="card dash-card">'
-      +       '<div class="dash-card-head"><h3 class="dash-card-title"><span class="title-dot"></span>小组成员</h3></div>'
-      +       '<div class="mate-grid">' + mateList + '</div>'
-      +     '</div>'
-      +     (s.tip ? '<div class="card dash-card"><div class="stu-tip-content">' + esc(s.tip) + '</div></div>' : '')
-      +   '</div>'
-      + '</div>';
   }
 
   function pageStudentLab() {
@@ -1349,6 +1277,11 @@ export function bootApp() {
     document.querySelectorAll('.topnav .nav-item').forEach(function (btn) {
       btn.classList.toggle('active', btn.getAttribute('data-p') === p);
     });
+    if (p === 's-home') {
+      paintStudentNav(p);
+      mountStudentTaskCenter(root, ui.snap, async function () { await refreshSession(); if (ui.page === 's-home') paintStudentNav('s-home'); return ui.snap; }, showPage);
+      return;
+    }
     if (p === 't-assign' || p === 't-students') {
       var askPassword = p === 't-students' ? function() { return askInput('重置学生密码', '新密码（至少 6 位）', '', true); } : undefined;
       mountTeacherAssignment(root, ui.snap, function(snapshot) { ui.snap = snapshot; }, askPassword);
@@ -1362,7 +1295,6 @@ export function bootApp() {
     var map = {
       'a-teachers': pageAdminTeachers,
       't-grade': pageTeacherGrade,
-      's-home': pageStudentHome,
       's-lab': pageStudentLab,
       's-report': pageStudentReport
     };
@@ -1575,17 +1507,6 @@ export function bootApp() {
       document.querySelectorAll('[data-grade]').forEach(function (btn) {
         btn.onclick = function () { openGradeModal(btn.getAttribute('data-grade')); };
       });
-    }
-
-    if (p === 's-home') {
-      var refreshTask = document.getElementById('btn-refresh-task');
-      if (refreshTask) refreshTask.onclick = async function () { await refreshSession(); await showPage('s-home'); };
-      var b1 = document.getElementById('btn-start-lab');
-      if (b1) b1.onclick = function () { showPage('s-lab'); };
-      var b2 = document.getElementById('btn-go-lab');
-      if (b2) b2.onclick = function () { showPage('s-lab'); };
-      var b3 = document.getElementById('btn-go-report');
-      if (b3) b3.onclick = function () { showPage('s-report'); };
     }
 
     if (p === 's-lab') {

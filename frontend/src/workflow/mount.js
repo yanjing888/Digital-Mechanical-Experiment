@@ -1,7 +1,14 @@
 import { createApp } from 'vue'
 import Workspace from './Workspace.vue'
 import TeacherAssignment from './TeacherAssignment.vue'
+import StudentTaskCenter from './StudentTaskCenter.vue'
 let app
+export function mountStudentTaskCenter(root, snapshot, onRefresh, onNavigate) {
+  unmountWorkflow()
+  root.innerHTML = ''
+  app = createApp(StudentTaskCenter, { snapshot, onRefresh, onNavigate })
+  app.mount(root)
+}
 export function mountTeacherAssignment(root, snapshot, onRefresh, askPassword) {
   unmountWorkflow()
   root.innerHTML = ''

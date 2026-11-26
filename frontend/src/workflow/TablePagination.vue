@@ -34,7 +34,7 @@ onUnmounted(() => observer?.disconnect())
 
 <template>
   <footer ref="root" class="table-pagination" :aria-label="label">
-    <p class="table-pagination__summary" role="status">共 {{ total.toLocaleString('zh-CN') }} 条<span aria-hidden="true"> · </span>第 {{ current }} / {{ pages }} 页</p>
+    <div class="table-pagination__info"><p class="table-pagination__summary" role="status">共 {{ total.toLocaleString('zh-CN') }} 条<span aria-hidden="true"> · </span>第 {{ current }} / {{ pages }} 页</p><slot name="page-size" /></div>
     <nav class="table-pagination__pages" :aria-label="label + '，选择页码'">
       <button type="button" class="table-pagination__arrow" aria-label="上一页" :disabled="disabled || current <= 1" @click="go(current - 1)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 5-5 5 5 5" /></svg></button>
       <template v-for="item in items" :key="item">
@@ -49,6 +49,7 @@ onUnmounted(() => observer?.disconnect())
 <style scoped>
 .table-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; box-sizing: border-box; min-width: 0; padding: 10px 20px; border-top: 1px solid #e1e7ec; background: #fff; color: #677580; font-size: 13px; font-variant-numeric: tabular-nums; container-type: inline-size; }
 .table-pagination__summary { margin: 0; font-size: 13px; line-height: 1.6; white-space: nowrap; }
+.table-pagination__info { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
 .table-pagination__pages { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .table-pagination__pages button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; box-sizing: border-box; min-width: 28px; height: 28px; padding: 0 5px; border: 1px solid #d7dee4; border-radius: 6px; background: #fff; color: #263b47; font: inherit; font-size: 13px; line-height: 1; cursor: pointer; transition: background-color .15s, border-color .15s; }
 .table-pagination__pages button:not(:disabled):hover { background: #f1f5fb; border-color: #9bb4d3; }
@@ -59,7 +60,7 @@ onUnmounted(() => observer?.disconnect())
 .table-pagination__pages button:disabled { opacity: .4; cursor: default; }
 .table-pagination__arrow svg { width: 14px; height: 14px; }
 .table-pagination__gap { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 28px; color: #8c969e; }
-@container (max-width: 520px) { .table-pagination__summary { flex-basis: 100%; } }
+@container (max-width: 520px) { .table-pagination__info { flex-basis: 100%; } }
 @media (pointer: coarse) { .table-pagination__pages button { min-width: 32px; height: 32px; } }
 @media (prefers-reduced-motion: reduce) { .table-pagination__pages button { transition: none; } }
 </style>

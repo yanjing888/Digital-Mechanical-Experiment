@@ -42,7 +42,7 @@ onBeforeUnmount(() => { generation++; release() })
 <template>
   <div class="report-preview" :aria-busy="loading">
     <ToastNotice :message="error" type="error" @close="error = ''" />
-    <div v-if="!file" class="report-preview__empty"><strong>报告预览</strong></div>
+    <div v-if="!file" class="report-preview__empty"><strong>尚未上传报告</strong></div>
     <div v-else-if="loading" class="report-preview__empty" role="status"><strong>正在加载报告…</strong></div>
     <div v-else-if="error" class="report-preview__empty"><button type="button" class="btn btn-ghost" @click="load">重新加载报告</button></div>
     <iframe v-else-if="pdfUrl" :src="pdfUrl" title="报告 PDF 原文预览" />

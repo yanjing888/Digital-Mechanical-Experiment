@@ -1,10 +1,10 @@
 <script setup>
-defineProps({ modelValue: { type: Number, default: 10 }, label: { type: String, default: '每页条数' }, disabled: Boolean })
+defineProps({ modelValue: { type: Number, default: 10 }, label: { type: String, default: '每页条数' }, disabled: Boolean, compact: Boolean })
 const emit = defineEmits(['update:modelValue'])
 </script>
 
 <template>
-  <label class="table-page-size"><span>每页</span><select :value="modelValue" :aria-label="label" :disabled="disabled" @change="emit('update:modelValue', Number($event.target.value))"><option v-for="size in [10,20,50]" :key="size" :value="size">{{ size }} 条</option></select></label>
+  <label class="table-page-size" :class="{ 'table-page-size--compact': compact }"><span>每页</span><select :value="modelValue" :aria-label="label" :disabled="disabled" @change="emit('update:modelValue', Number($event.target.value))"><option v-for="size in [10,20,50]" :key="size" :value="size">{{ size }} 条</option></select></label>
 </template>
 
 <style scoped>
@@ -13,4 +13,6 @@ const emit = defineEmits(['update:modelValue'])
 .table-page-size > select:hover:not(:disabled) { border-color: #9bb4d3; }
 .table-page-size > select:focus-visible { outline: 2px solid #305fa4; outline-offset: 2px; }
 .table-page-size > select:disabled { opacity: .5; cursor: default; }
+.table-page-size--compact { font-size: 12px; gap: 6px; }
+.table-page-size--compact > select { min-width: 68px; height: 28px; min-height: 28px; padding: 2px 6px; }
 </style>

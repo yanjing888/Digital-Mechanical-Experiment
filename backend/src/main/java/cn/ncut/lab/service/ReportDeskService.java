@@ -26,7 +26,7 @@ public class ReportDeskService {
         }
 
         Map<String,Map<String,Object>> students=new LinkedHashMap<>();
-        for(var row:runs.jdbc().queryForList("SELECT sid,name,cls FROM students ORDER BY cls,sid")) {
+        for(var row:runs.jdbc().queryForList("SELECT sid,name,cls,major FROM students ORDER BY cls,sid")) {
             Map<String,Object> student=new LinkedHashMap<>(row);Map<String,Object> scores=new LinkedHashMap<>();
             for(var experiment:experiments)scores.put(str(experiment.get("id")),new LinkedHashMap<>(Map.of("status","未开课")));
             student.put("scores",scores);students.put(str(row.get("sid")),student);
@@ -53,14 +53,14 @@ public class ReportDeskService {
     }
     public List<Map<String,Object>> roster(String taskId,Actor a) {
         teacher(a);List<Map<String,Object>> out=new ArrayList<>();
+        Map<String,Map<String,Object>> profiles=new HashMap<>();
+        for(var profile:runs.jdbc().queryForList("SELECT sid,cls,major FROM students"))profiles.put(str(profile.get("sid")),profile);
         for(var row:runs.jdbc().queryForList("SELECT id FROM experiment_runs WHERE task_id=? ORDER BY created_at,group_id",taskId)) {
             var r=runs.detail(str(row.get("id")),a);
             for(var member:list(r.get("members"))) {
                 var item=new LinkedHashMap<>(member);
-                if(str(item.get("cls")).isBlank()) {
-                    var students=runs.jdbc().queryForList("SELECT cls FROM students WHERE sid=?",member.get("sid"));
-                    if(!students.isEmpty())item.put("cls",students.get(0).get("cls"));
-                }
+                var profile=profiles.getOrDefault(str(member.get("sid")),Map.of());
+                for(String field:List.of("cls","major"))if(str(item.get(field)).isBlank())item.put(field,str(profile.get(field)));
                 item.put("runId",r.get("id"));item.put("groupName",r.get("groupName"));item.put("attempt",r.get("attempt"));
                 var reports=list(r.get("reports")).stream().filter(p->Objects.equals(member.get("sid"),p.get("sid"))).sorted(Comparator.comparingInt(p->-((Number)p.get("version")).intValue())).toList();
                 item.put("reports",reports);item.put("latest",reports.isEmpty()?null:reports.get(0));out.add(item);
