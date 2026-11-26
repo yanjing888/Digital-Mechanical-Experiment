@@ -18,9 +18,10 @@ import java.util.*;
 public class RunService {
     final JdbcTemplate db;
     final WanceDataService wance;
-    final TaskSchedule schedule;
+    private final TaskSchedule schedule;
     public RunService(JdbcTemplate db, WanceDataService wance) { this.db=db; this.wance=wance; this.schedule=new TaskSchedule(db); }
     public JdbcTemplate jdbc() { return db; }
+    public boolean openTaskIfDue(String taskId) { return schedule.openIfDue(taskId); }
     public List<String> validateTrials(Object value) {
         if(value==null)return ExperimentCatalog.TRIAL_IDS;
         if(!(value instanceof List<?> ids)||ids.isEmpty())throw new ApiException(400,"请选择至少一个试验子项");

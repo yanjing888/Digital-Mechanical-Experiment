@@ -3,15 +3,25 @@ package cn.ncut.lab.service;
 import cn.ncut.lab.config.WorkflowSchema;
 import cn.ncut.lab.web.ApiException;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.context.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+import javax.sql.DataSource;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class RosterAssignmentTest {
+    @Configuration @EnableTransactionManagement(proxyTargetClass=true)
+    static class Transactions {
+        @Bean DataSourceTransactionManager transactionManager(DataSource ds) { return new DataSourceTransactionManager(ds); }
+    }
+    AnnotationConfigApplicationContext context;
     JdbcTemplate db; StoreService store; RunService runs; RosterAssignmentService assignments; TransactionTemplate tx;
     @BeforeEach void setup() {
         var ds=new DriverManagerDataSource("jdbc:h2:mem:"+UUID.randomUUID()+";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1","sa","");
@@ -26,13 +36,41 @@ class RosterAssignmentTest {
         db.execute("CREATE TABLE teachers(id VARCHAR(64),name VARCHAR(64),username VARCHAR(64),password_hash VARCHAR(255),active INT)");
         db.execute("CREATE TABLE admins(name VARCHAR(64),username VARCHAR(64),password_hash VARCHAR(255))");
         db.execute("CREATE TABLE sessions(token VARCHAR(64),role VARCHAR(16),student_id VARCHAR(32),teacher_name VARCHAR(64),created_at VARCHAR(64))");
-        store=new StoreService(db);runs=new RunService(db,null);assignments=new RosterAssignmentService(db,store,runs);
+        context=new AnnotationConfigApplicationContext();
+        context.registerBean(DataSource.class,()->ds);
+        context.registerBean(JdbcTemplate.class,()->db);
+        context.register(Transactions.class);
+        context.registerBean(StoreService.class,()->new StoreService(db));
+        context.registerBean(RunService.class,()->new RunService(db,null));
+        context.registerBean(RosterAssignmentService.class);
+        context.refresh();
+        store=context.getBean(StoreService.class);runs=context.getBean(RunService.class);assignments=context.getBean(RosterAssignmentService.class);
         store.importRoster(List.of(row("100001","A"),row("100002","A"),row("100003","B")),"Teacher");
     }
+    @AfterEach void closeContext() { if(context!=null)context.close(); }
     Map<String,String> row(String sid,String cls) { return Map.of("sid",sid,"name",sid,"cls",cls,"major","Civil"); }
-    Map<String,Object> body(List<List<String>> groups) { return Map.of("expId",ExperimentCatalog.COMBINED,"requiredTrials",List.of("STEEL_TENS"),"studentGroups",groups,"timeText","2026-12-01 14:00"); }
+    Map<String,Object> body(List<List<String>> groups) { return Map.of("expId",ExperimentCatalog.COMBINED,"requiredTrials",List.of("STEEL_TENS"),"studentGroups",groups,"timeText",java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")).plusDays(1).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))); }
     @SuppressWarnings("unchecked") String assign(List<List<String>> groups) { return tx.execute(s -> (String)((Map<String,Object>)assignments.assign(body(groups),"Teacher").get("task")).get("id")); }
 
+    @Test void springManagedDispatchOpensPastLessonAndPreservesTeacherInstructions() {
+        assertTrue(AopUtils.isCglibProxy(runs));assertTrue(AopUtils.isCglibProxy(assignments));
+        var request=new LinkedHashMap<>(body(List.of(List.of("100001","100002"))));
+        request.put("timeText",java.time.Instant.now().minusSeconds(3600).toString());
+        request.put("note","保留原始数据");request.put("tip","核对试件编号\n采集断口图像");
+        var result=assignments.assign(request,"Teacher");
+        var task=(Map<?,?>)result.get("task");
+        assertEquals("active",task.get("lessonState"));
+        assertEquals("保留原始数据",store.getStudent("100001").get("note"));
+        assertEquals("核对试件编号\n采集断口图像",store.getStudent("100001").get("tip"));
+        var member=new RunService.Actor(false,"100001");
+        var summary=runs.runs(member).get(0);
+        assertEquals("active",summary.get("lessonState"));assertEquals(true,runs.detail((String)summary.get("id"),member).get("classOpen"));
+        assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM tasks",Integer.class));
+    }
+    @Test void springManagedDispatchWithoutTimeStillWaitsForTeacher() {
+        var request=new LinkedHashMap<>(body(List.of(List.of("100001"))));request.put("timeText","");
+        assertEquals("scheduled",((Map<?,?>)assignments.assign(request,"Teacher").get("task")).get("lessonState"));
+    }
     @Test void importedAccountLogsInBeforeAnyAssignmentAndOldTemplatePreservesMajor() {
         var login=store.loginWithPassword("100001","100001");
         assertEquals("student",login.get("role"));
