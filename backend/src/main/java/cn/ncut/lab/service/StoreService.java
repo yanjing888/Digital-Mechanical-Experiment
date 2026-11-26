@@ -667,6 +667,7 @@ public class StoreService {
                 if (!records.isEmpty() && !anyOpen) lessonState = "finished";
             }
             m.put("lessonState",lessonState);
+            m.put("teacherScoreConfirmationRequired",ClassroomService.teacherConfirmationRequired(config));
             m.put("createdAt", t.get("created_at"));
             m.put("groupIds", groupIds);
             var memberships = jdbc.queryForList("SELECT DISTINCT r.group_id,rm.sid,rm.name FROM run_members rm JOIN experiment_runs r ON r.id=rm.run_id WHERE r.task_id=? AND r.parent_id IS NULL ORDER BY rm.sid", t.get("id"));

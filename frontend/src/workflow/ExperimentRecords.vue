@@ -2,6 +2,9 @@
 import { computed, onUnmounted, reactive, ref } from 'vue'
 import { call, fileBlob } from './api.js'
 import OperationRecordDoc from './OperationRecordDoc.vue'
+import TablePagination from './TablePagination.vue'
+import TablePageSize from './TablePageSize.vue'
+import { usePagination } from './pagination.js'
 
 const props = defineProps({ runs: { type: Array, default: () => [] }, students: { type: Array, default: () => [] }, loading: Boolean })
 const emit = defineEmits(['refresh'])
@@ -20,7 +23,7 @@ function recordStatus(row) {
   if (row.retakeRequest?.status === 'pending') return '重做待处理'
   if (row.retakeRequest?.status === 'arranged') return '已安排重做'
   if (!row.collectionComplete) return '采集中'
-  if (row.classOpen) return '待确认成绩'
+  if (row.classOpen && row.teacherScoreConfirmationRequired !== false) return '待确认成绩'
   return row.archived ? '已提交' : '待学生提交'
 }
 const statuses = ['采集中', '待确认成绩', '待学生提交', '已提交', '重做待处理', '已安排重做']
@@ -33,6 +36,7 @@ const filtered = computed(() => {
     && (!status.value || recordStatus(row) === status.value)
     && (!search || [row.expName, row.groupName, ...rowClasses(row), ...(row.members || []).flatMap(m => [m.name, m.sid])].join(' ').toLowerCase().includes(search)))
 })
+const { page, pageSize, pagedRows } = usePagination(filtered, [experiment, group, selectedClass, status, query])
 const stamp = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
 function clearImages() { Object.keys(images).forEach(id => { URL.revokeObjectURL(images[id]); delete images[id] }) }
 function back() { generation++; active.value = null; detail.value = null; loadingDetail.value = false; error.value = ''; clearImages() }
@@ -57,7 +61,7 @@ onUnmounted(() => { generation++; clearImages() })
 <template>
   <section class="wf-panel experiment-records" :aria-label="active ? '实验记录详情' : '实验记录'">
     <template v-if="!active">
-      <header class="records-heading"><button type="button" class="btn btn-ghost" :disabled="loading" @click="emit('refresh')">{{ loading ? '正在加载…' : '刷新' }}</button></header>
+      <header class="records-heading"><TablePageSize v-model="pageSize" label="实验记录每页条数" :disabled="loading" /><button type="button" class="btn btn-ghost" :disabled="loading" @click="emit('refresh')">{{ loading ? '正在加载…' : '刷新' }}</button></header>
       <div class="records-filters">
         <label>实验项目<select v-model="experiment" @change="group = ''"><option value="">全部项目</option><option v-for="[id, name] in experiments" :key="id" :value="id">{{ name }}</option></select></label>
         <label>实验小组<select v-model="group"><option value="">全部小组</option><option v-for="name in groups" :key="name" :value="name">{{ name }}</option></select></label>
@@ -65,12 +69,11 @@ onUnmounted(() => { generation++; clearImages() })
         <label>记录状态<select v-model="status"><option value="">全部状态</option><option v-for="name in statuses" :key="name">{{ name }}</option></select></label>
         <label class="records-search">搜索<input v-model="query" type="search" placeholder="姓名、学号或班级"></label>
       </div>
-      <p class="records-count">共 {{ filtered.length }} 条记录</p>
       <div class="records-table-wrap" tabindex="0" aria-label="实验记录表格，可横向滚动">
         <table aria-label="实验记录列表">
           <thead><tr><th scope="col">实验项目</th><th scope="col">实验小组</th><th scope="col">组员</th><th scope="col">班级</th><th scope="col">课次时间</th><th scope="col">子实验</th><th scope="col" class="records-number">操作分</th><th scope="col">记录状态</th><th scope="col">操作</th></tr></thead>
           <tbody>
-            <tr v-for="row in filtered" :key="row.id">
+            <tr v-for="row in pagedRows" :key="row.id">
               <td>{{ row.expName }}</td><td>{{ row.groupName }}<small>第 {{ row.attempt }} 次</small></td>
               <td class="records-members">{{ (row.members || []).map(member => member.name).join('、') || '—' }}<small>{{ (row.members || []).map(member => member.sid).join('、') }}</small></td>
               <td>{{ rowClasses(row).join('、') || '—' }}</td>
@@ -82,6 +85,7 @@ onUnmounted(() => { generation++; clearImages() })
         </table>
       </div>
       <p v-if="!filtered.length" class="records-empty" role="status">{{ loading ? '正在加载实验记录…' : runs.length ? '没有符合条件的实验记录' : '暂无实验记录' }}</p>
+      <TablePagination v-model:page="page" class="records-pagination" :total="filtered.length" :page-size="pageSize" :disabled="loading" label="实验记录分页" />
     </template>
     <template v-else>
       <header class="records-detail-heading"><button type="button" class="btn btn-ghost" @click="back">返回列表</button></header>
@@ -100,7 +104,9 @@ onUnmounted(() => { generation++; clearImages() })
 .records-filters{display:grid;grid-template-columns:1.15fr .85fr 1fr 1fr 1.25fr;gap:16px}
 .records-filters label{display:grid;gap:7px;font-size:13px;color:#52666f}
 .records-filters input,.records-filters select{width:100%;min-width:0;box-sizing:border-box;height:40px;font:inherit;color:#243b45;background:#fff;border:1px solid #cddce1;border-radius:6px;padding:8px 10px}
-.records-count{margin:22px 0 12px;color:#52666f;font-size:13px}
+.records-heading { justify-content: space-between; }
+.records-filters { margin-bottom: 24px; }
+.records-pagination { margin-top: 16px; padding-inline: 0; padding-bottom: 0; }
 .records-table-wrap{width:100%;overflow-x:auto;border:1px solid #c9d6df;border-radius:6px}
 .records-table-wrap table{width:100%;min-width:1100px;border-collapse:collapse;font-size:14px}
 .records-table-wrap th,.records-table-wrap td{text-align:left;vertical-align:top;padding:13px 12px;border:1px solid #d5dfe6;background:#fff;line-height:1.6}

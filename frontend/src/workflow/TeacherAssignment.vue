@@ -2,6 +2,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from '../api.js'
 import ToastNotice from './ToastNotice.vue'
+import TablePagination from './TablePagination.vue'
+import TablePageSize from './TablePageSize.vue'
 const props = defineProps({ snapshot: Object, onRefresh: Function, manage: Boolean, askPassword: Function })
 const snap = ref(props.snapshot)
 const major = ref(''), cls = ref(''), query = ref(''), status = ref('')
@@ -25,7 +27,7 @@ const selected = ref(new Set()), page = ref(1), busy = ref(false), message = ref
 const pageSize = ref(10)
 const visiblePassword = ref(null)
 const size = ref(4), preview = ref(null), groups = ref([]), groupEdited = ref(false)
-const form = reactive({ expId: 'TENSION_COMPRESSION', timeText: '', place: '', note: '', tip: '', requiredTrials: [] })
+const form = reactive({ expId: 'TENSION_COMPRESSION', timeText: '', place: '', note: '', tip: '', requiredTrials: [], teacherScoreConfirmationRequired: false })
 const notesDialog = ref(null)
 const notesDraft = reactive({ note: '', tip: '' })
 function editNotes() {
@@ -197,6 +199,7 @@ function resetPassword(student) {
           <select v-model="cls" aria-label="班级"><option value="">全部班级</option><option v-for="c in classes" :key="c">{{c}}</option></select>
           </div>
           <div class="ra-filter-actions">
+            <TablePageSize v-model="pageSize" label="学生名单每页条数" :disabled="busy" />
             <button v-if="status" type="button" class="ra-active-filter" :disabled="busy" :aria-label="'清除安排状态筛选：' + statusLabel" @click="status=''">{{statusLabel}}<span aria-hidden="true">×</span></button>
             <button v-if="hasFilters" type="button" class="ra-text-action" :disabled="busy" @click="resetFilters">重置</button>
             <button type="button" class="ra-refresh" :disabled="busy" aria-label="刷新名单" title="刷新名单" @click="refreshRoster"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M19.2 12a7.2 7.2 0 1 0-1.8 4.8M20 12l-2.6-5"/></svg></button>
@@ -241,18 +244,7 @@ function resetPassword(student) {
             </tbody>
           </table>
         </div>
-        <footer v-if="!manage" class="ra-pagination">
-          <span v-if="pages > 1">{{firstRow + 1}}–{{firstRow + rows.length}} / {{filtered.length}} 人</span>
-          <span v-else>共 {{filtered.length}} 人</span>
-          <div>
-            <label>每页 <select v-model.number="pageSize" aria-label="每页人数"><option v-for="n in [10,20,50]" :key="n" :value="n">{{n}} 人</option></select></label>
-            <template v-if="pages > 1">
-              <button type="button" aria-label="上一页" :disabled="page<=1" @click="page--">‹</button>
-              <span aria-live="polite">{{page}} / {{pages}}</span>
-              <button type="button" aria-label="下一页" :disabled="page>=pages" @click="page++">›</button>
-            </template>
-          </div>
-        </footer>
+        <TablePagination v-if="!manage" v-model:page="page" class="ra-pagination" :total="filtered.length" :page-size="pageSize" :disabled="busy" label="选择学生分页" />
       </section>
       <form v-if="!manage" class="ra-plan" aria-labelledby="arrangement-title" @submit.prevent="dispatch">
         <h2 id="arrangement-title">安排实验</h2>
@@ -265,6 +257,13 @@ function resetPassword(student) {
           <label>实验时间<div class="ra-date" :class="{'is-empty':!form.timeText}"><span v-if="!form.timeText">选择日期与时间</span><input v-model="form.timeText" type="datetime-local" aria-label="实验时间" @click="$event.target.showPicker?.()"></div></label>
           <label>地点<input v-model="form.place" placeholder="实验地点" maxlength="255"></label>
         </div>
+        <section class="ra-confirm-policy" aria-labelledby="teacher-score-policy-title">
+          <label class="ra-confirm-policy__row">
+            <strong id="teacher-score-policy-title">需要教师确认操作成绩</strong>
+            <span class="ra-confirm-toggle"><input v-model="form.teacherScoreConfirmationRequired" type="checkbox" role="switch" aria-labelledby="teacher-score-policy-title" aria-describedby="teacher-score-policy-help" :disabled="busy"><span aria-hidden="true"></span></span>
+          </label>
+          <p id="teacher-score-policy-help">{{form.teacherScoreConfirmationRequired ? '开启：教师确认成绩后，学生才能接受成绩并提交记录。' : '已跳过：学生采集完成即可提交，系统自动确认操作成绩。'}}</p>
+        </section>
         <div class="ra-notes-entry">
           <button type="button" class="btn btn-ghost" aria-haspopup="dialog" :disabled="busy" @click="editNotes">备注与实验说明</button>
           <span v-if="form.note || form.tip">已填写</span>
@@ -273,18 +272,7 @@ function resetPassword(student) {
       </form>
     </div>
     <Teleport to="body">
-    <footer v-if="manage" class="ra-pagination ra-pagination--page-bottom" aria-label="学生名单分页">
-      <span v-if="pages > 1">{{firstRow + 1}}–{{firstRow + rows.length}} / {{filtered.length}} 人</span>
-      <span v-else>共 {{filtered.length}} 人</span>
-      <div>
-        <label>每页 <select v-model.number="pageSize" aria-label="每页人数"><option v-for="n in [10,20,50]" :key="n" :value="n">{{n}} 人</option></select></label>
-        <template v-if="pages > 1">
-          <button type="button" aria-label="上一页" :disabled="page<=1" @click="page--">‹</button>
-          <span aria-live="polite">{{page}} / {{pages}}</span>
-          <button type="button" aria-label="下一页" :disabled="page>=pages" @click="page++">›</button>
-        </template>
-      </div>
-    </footer>
+    <TablePagination v-if="manage" v-model:page="page" class="ra-pagination ra-pagination--page-bottom" :total="filtered.length" :page-size="pageSize" :disabled="busy" label="学生名单分页" />
     </Teleport>
     <div :id="statusFilterId" ref="statusFilterPopover" popover class="ra-status-popover" aria-label="实验安排筛选">
       <p>实验安排</p>
@@ -296,6 +284,7 @@ function resetPassword(student) {
       <header class="ra-heading">
         <h2>已下发 <span>{{tasks.length}}</span></h2>
         <div class="ra-actions">
+          <TablePageSize v-model="taskPageSize" label="已下发任务每页条数" :disabled="busy" />
           <select id="task-state-filter" v-model="taskStateFilter" aria-label="筛选任务状态">
             <option value="">全部状态</option>
             <option v-for="(label,key) in taskStates" :key="key" :value="key">{{label}}</option>
@@ -315,7 +304,7 @@ function resetPassword(student) {
           </tr></thead>
           <tbody>
             <tr v-for="task in visibleTasks" :key="task.id">
-              <td><strong>{{task.expName}}</strong></td>
+              <td><strong>{{task.expName}}</strong><small>{{task.teacherScoreConfirmationRequired === false ? '跳过教师确认' : '需教师确认操作成绩'}}</small></td>
               <td class="ra-numeric">{{task.createdAt?.slice(0,10) || '—'}}</td>
               <td>{{task.timeText || task.place || '—'}}<small v-if="task.timeText && task.place">{{task.place}}</small></td>
               <td class="ra-numeric ra-centered">
@@ -332,18 +321,7 @@ function resetPassword(student) {
           </tbody>
         </table>
       </div>
-      <footer class="ra-pagination">
-        <span v-if="taskPages > 1">{{taskOffset + 1}}–{{taskOffset + visibleTasks.length}} / {{taskRows.length}} 项</span>
-        <span v-else>共 {{taskRows.length}} 项</span>
-        <div>
-          <label>每页 <select v-model.number="taskPageSize" aria-label="已下发任务每页条数"><option v-for="n in [10,20,50]" :key="n" :value="n">{{n}} 条</option></select></label>
-          <template v-if="taskPages > 1">
-          <button type="button" aria-label="已下发任务上一页" :disabled="taskPage<=1" @click="taskPage--">‹</button>
-          <span aria-live="polite">{{taskPage}} / {{taskPages}}</span>
-          <button type="button" aria-label="已下发任务下一页" :disabled="taskPage>=taskPages" @click="taskPage++">›</button>
-          </template>
-        </div>
-      </footer>
+      <TablePagination v-model:page="taskPage" class="ra-pagination" :total="taskRows.length" :page-size="taskPageSize" :disabled="busy" label="已下发任务分页" />
     </section>
     <dialog v-if="!manage" ref="notesDialog" class="ra-dialog ra-notes-dialog" aria-labelledby="assignment-notes-title">
       <header>
@@ -451,7 +429,6 @@ function resetPassword(student) {
   background: var(--surface-pressed);
 }
 .ra-table td.ra-empty { text-align: center; height: 150px; color: var(--ra-muted); }
-.ra-pagination{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--ra-muted)}.ra-pagination>div{display:flex;align-items:center;gap:12px}.ra-pagination button{border:1px solid var(--ra-line);background:#fff;border-radius:6px;font-size:22px;line-height:1;width:30px;height:30px;cursor:pointer}.ra-pagination button:disabled{opacity:.35;cursor:default}
 .ra-plan{display:flex;flex-direction:column}.ra-plan-count{font-size:13px;color:var(--ra-muted);border-bottom:1px solid var(--ra-line)}.ra-plan-count strong{font-size:26px;font-weight:600;color:#2e6875;font-variant-numeric:tabular-nums}.ra-plan-count span{float:right;margin-top:10px}.ra-plan>label,.ra-notes-fields label,.ra-form-pair>label{display:flex;flex-direction:column;gap:7px;font-size:13px;color:var(--ra-muted)}.ra-plan fieldset{border:0;padding:0;margin:0}.ra-plan legend{font-size:13px;color:var(--ra-muted);margin-bottom:9px}.ra-trials{display:grid;grid-template-columns:1fr 1fr;gap:11px 7px}.ra-trials label{display:flex;gap:6px;align-items:center;font-size:13px}.ra-form-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:end}.ra-plan .ra-preview{height:40px}.ra-date{position:relative;padding:0}.ra-date>span{position:absolute;left:12px;top:12px;font-size:14px;pointer-events:none}.ra-date.is-empty input{color:transparent!important}.ra-date.is-empty input::-webkit-datetime-edit{visibility:hidden}.ra-date:focus-within>span{display:none}.ra-date:focus-within input::-webkit-datetime-edit{visibility:visible}.ra-date:focus-within input{color:var(--ra-ink)!important}.ra-dispatch{width:100%}.ra-tasks{margin-top:22px}
 .ra-dialog{width:min(850px,calc(100vw - 32px));max-height:85vh;box-sizing:border-box;border:1px solid var(--ra-line);border-radius:16px;padding:0;color:var(--ra-ink)}.ra-dialog::backdrop{background:#172a3759}.ra-dialog>header,.ra-dialog>footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px}.ra-dialog h2{font-size:18px;margin:0}.ra-dialog h2 span{font-size:13px;font-weight:400;color:var(--ra-muted)}.ra-dialog>header button{border:0;background:none;font-size:26px;cursor:pointer}.ra-dialog-body{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-height:60vh;overflow:auto;padding:0 22px 16px}.ra-group{border:1px solid var(--ra-line);border-radius:10px;padding:14px}.ra-group h3{font-size:14px;margin:0 0 8px}.ra-group h3 small{float:right;font-weight:400;color:var(--ra-muted)}.ra-member{display:flex;align-items:center;justify-content:space-between;padding:10px 0;gap:12px;border-top:1px solid #edf1f3}.ra-member strong{font-size:13px;font-weight:550}.ra-member small{display:block;font-size:11px;color:var(--ra-muted);margin-top:3px}.roster-assignment .ra-member select{width:98px;min-height:32px;font-size:12px;padding:6px}
 .ra-roster { display: flex; flex-direction: column; }
@@ -513,17 +490,6 @@ function resetPassword(student) {
 .ra-upload:has(input:disabled) { opacity: .55; cursor: default; }
 .ra-selection { flex-wrap: wrap; gap: 0 10px; }
 .ra-selection button:disabled { opacity: .5; cursor: default; }
-.ra-pagination { flex-wrap: wrap; gap: 8px; }
-.ra-pagination label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.ra-pagination label select { width: auto; min-height: 30px; padding: 3px 5px; font-size: 12px; }
-.ra-pagination {
-  border-top: 1px solid var(--ra-line);
-  padding: 9px 20px;
-  background: #fff;
-}
-.ra-pagination button { transition: background-color var(--interaction-time), border-color var(--interaction-time); }
-.ra-pagination button:not(:disabled):hover { background: var(--surface-hover); border-color: #95bbcb; }
-.ra-pagination button:not(:disabled):active { background: var(--surface-pressed); }
 .roster-assignment :is(input[type=search], select, input[type=datetime-local], input[type=text], input:not([type]), textarea):not(:disabled) {
   transition: background-color var(--interaction-time), border-color var(--interaction-time);
 }
@@ -584,8 +550,22 @@ function resetPassword(student) {
 .ra-text-action:not(:disabled):active { background: var(--surface-pressed); }
 .ra-text-action:disabled { opacity: .55; cursor: default; }
 .ra-members-link { text-decoration: underline; text-underline-offset: 3px; }
+.ra-confirm-policy { padding: 14px 0; border-top: 1px solid var(--ra-line); border-bottom: 1px solid var(--ra-line); }
+.ra-confirm-policy__row { display: flex; align-items: center; justify-content: space-between; gap: 16px; cursor: pointer; }
+.ra-confirm-policy__row strong { font-size: 14px; font-weight: 550; line-height: 1.6; }
+.ra-confirm-policy p { margin: 8px 0 0; font-size: 12px; line-height: 1.8; color: var(--ra-muted); }
+.ra-confirm-toggle { position: relative; display: inline-flex; flex: 0 0 38px; width: 38px; height: 22px; }
+.roster-assignment .ra-confirm-toggle input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; z-index: 1; }
+.ra-confirm-toggle > span { width: 100%; height: 100%; border-radius: 22px; background: #9baab2; transition: background-color .15s; }
+.ra-confirm-toggle > span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.ra-confirm-toggle input:checked + span { background: #2c707e; }
+.ra-confirm-toggle input:checked + span::after { transform: translateX(16px); }
+.ra-confirm-toggle input:focus-visible + span { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+.ra-confirm-toggle input:disabled + span { opacity: .55; }
+@media (prefers-reduced-motion: reduce) { .ra-confirm-toggle > span, .ra-confirm-toggle > span::after { transition: none; } }
 .ra-page--management { padding-bottom: 90px; }
-.ra-pagination.ra-pagination--page-bottom { position: fixed; z-index: 100; bottom: 0; left: 0; right: 0; box-sizing: border-box; min-height: 60px; margin: 0; padding: 12px clamp(1rem, 2.5vw, 2rem); padding-bottom: max(12px, env(safe-area-inset-bottom)); border-top: 1px solid #dfe7eb; background: #fff; color: #657985; }
+.ra-pagination.ra-pagination--page-bottom { position: fixed; z-index: 100; bottom: 0; left: 0; right: 0; box-sizing: border-box; min-height: 52px; margin: 0; padding: 10px clamp(1rem, 2.5vw, 2rem); padding-bottom: max(10px, env(safe-area-inset-bottom)); border-top: 1px solid #dfe7eb; background: #fff; color: #657985; }
+@media (max-width: 560px) { .ra-page--management { padding-bottom: 130px; } }
 .ra-status-heading { display: flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; }
 .ra-status-trigger { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; padding: 5px; border: 0; border-radius: 4px; background: transparent; color: #788a96; cursor: pointer; }
 .ra-status-trigger svg { width: 16px; height: 16px; }

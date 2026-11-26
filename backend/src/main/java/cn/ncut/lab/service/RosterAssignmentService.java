@@ -18,6 +18,7 @@ public class RosterAssignmentService {
     @Transactional
     public Map<String,Object> assign(Map<String,Object> body, String teacher) {
         List<String> trials=runs.validateTrials(body.get("requiredTrials"));
+        boolean teacherScoreConfirmationRequired=runs.validateTeacherScoreConfirmation(body.get("teacherScoreConfirmationRequired"));
         if (!ExperimentCatalog.IDS.contains(RunService.str(body.get("expId")))) throw new ApiException(400,"实验项目无效");
         Object value=body.get("studentGroups");
         if (!(value instanceof List<?> groups) || groups.isEmpty() || groups.size()>500) throw new ApiException(400,"请选择学生并完成分组");
@@ -53,9 +54,10 @@ public class RosterAssignmentService {
                 RunService.str(body.get("place")),RunService.str(body.get("timeText")),
                 RunService.str(body.get("note")),RunService.str(body.get("tip")),teacher);
         String taskId=RunService.str(task.get("id"));
-        runs.scheduleTask(taskId,trials);
+        runs.scheduleTask(taskId,trials,teacherScoreConfirmationRequired);
         runs.provision(taskId);
         task.put("lessonState","scheduled");
+        task.put("teacherScoreConfirmationRequired",teacherScoreConfirmationRequired);
         return Map.of("task",task,"tasks",store.listTasks());
     }
 }

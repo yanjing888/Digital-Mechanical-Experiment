@@ -8,6 +8,7 @@ const complete = computed(() => props.run.trialItems
   : !!props.run.data && !!props.run.photos?.length)
 const deductions = computed(() => (props.run.deductions || []).filter(d => !d.voided))
 const deducted = computed(() => deductions.value.reduce((total, item) => total + Number(item.points || 0), 0))
+const teacherConfirmationRequired = computed(() => props.run.teacherScoreConfirmationRequired !== false)
 function submitRetake() {
   if (!reason.value.trim()) return
   emit('retake', reason.value.trim())
@@ -19,9 +20,10 @@ function submitRetake() {
     <header><h3>{{ run.classOpen ? '当前操作分' : '操作成绩' }} <strong>{{ run.operationScore }}<small>分</small></strong></h3><p>基础分 100，扣 {{ deducted }} 分</p></header>
     <table v-if="deductions.length"><thead><tr><th>扣分项</th><th>扣分</th><th>原因</th></tr></thead><tbody><tr v-for="item in deductions" :key="item.id"><td>{{ item.label }}</td><td>{{ item.points }} 分</td><td>{{ item.reason || '—' }}</td></tr></tbody></table>
     <p v-else class="score-note">暂无扣分记录。</p>
-    <p v-if="!complete" class="score-note">完成全部子实验后，由教师确认扣分。</p>
-    <p v-else-if="run.classOpen" class="score-note">等待教师确认扣分，确认后可选择提交记录或申请重做。</p>
+    <p v-if="!complete" class="score-note">{{teacherConfirmationRequired ? '完成全部资料采集后，由教师确认扣分。' : '完成全部资料采集后，即可接受成绩并提交记录，无需等待教师确认。'}}</p>
+    <p v-else-if="run.classOpen && teacherConfirmationRequired" class="score-note">等待教师确认扣分，确认后可选择提交记录或申请重做。</p>
     <template v-else-if="!teacher">
+      <p v-if="!teacherConfirmationRequired && run.classOpen" class="score-note">本课次无需等待教师确认。核对当前成绩后，可直接接受成绩并提交记录。</p>
       <p v-if="run.retakeRequest?.status === 'pending'" class="score-note">重做申请已提交，等待教师安排。{{ run.retakeRequest.reason }}</p>
       <p v-else-if="run.retakeRequest?.status === 'arranged'" class="score-note">教师已安排重做，请在实验记录中选择新的实验。</p>
       <p v-else-if="run.myScoreConfirmed && run.archived" class="score-note">已接受操作成绩，操作记录已提交。</p>

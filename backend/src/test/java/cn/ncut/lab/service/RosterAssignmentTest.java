@@ -50,7 +50,33 @@ class RosterAssignmentTest {
         var run=runs.runs(new RunService.Actor(false,"100001")).get(0);
         assertEquals("scheduled",run.get("lessonState"));
         var detail=runs.detail((String)run.get("id"),new RunService.Actor(false,"100001"));assertEquals(false,detail.get("classOpen"));
+        assertEquals(false,detail.get("teacherScoreConfirmationRequired"));
         assertEquals(2,((List<?>)store.listTasks().get(0).get("students")).size());
+    }
+    @Test void confirmationPolicyPersistsPerTaskAndStartsWithoutChangingIt() {
+        var request=new LinkedHashMap<>(body(List.of(List.of("100001"))));
+        request.put("teacherScoreConfirmationRequired",true);
+        var result=tx.execute(s->assignments.assign(request,"Teacher"));
+        var task=(Map<?,?>)result.get("task");String taskId=(String)task.get("id");
+        assertEquals(true,task.get("teacherScoreConfirmationRequired"));
+        assertEquals(true,store.listTasks().get(0).get("teacherScoreConfirmationRequired"));
+        var student=new RunService.Actor(false,"100001");
+        String runId=(String)runs.runs(student).get(0).get("id");
+        assertEquals(true,runs.detail(runId,student).get("teacherScoreConfirmationRequired"));
+        assertEquals(false,runs.classroom(runId,student).get("scoreReady"));
+        tx.execute(s->runs.startTask(taskId,new RunService.Actor(true,"Teacher")));
+        assertEquals(true,runs.detail(runId,student).get("classOpen"));
+        assertEquals(true,runs.detail(runId,student).get("teacherScoreConfirmationRequired"));
+        assign(List.of(List.of("100002")));
+        assertEquals(true,runs.detail(runId,student).get("teacherScoreConfirmationRequired"));
+        assertTrue(store.listTasks().stream().anyMatch(t->Boolean.FALSE.equals(t.get("teacherScoreConfirmationRequired"))));
+    }
+    @Test void invalidConfirmationPolicyCannotCreateTasksOrGroups() {
+        var request=new LinkedHashMap<>(body(List.of(List.of("100001"))));
+        request.put("teacherScoreConfirmationRequired","false");
+        assertEquals(400,assertThrows(ApiException.class,()->tx.execute(s->assignments.assign(request,"Teacher"))).getStatus());
+        assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM tasks",Integer.class));
+        assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM lab_groups",Integer.class));
     }
     @Test void reassigningStudentPreservesHistoricalMembershipAndOtherStudents() {
         String previous=assign(List.of(List.of("100001","100002")));

@@ -156,6 +156,7 @@ public class ApiController {
         Sessions.requireTeacher(req);
         if (body.containsKey("studentGroups")) return assignments.assign(body, Sessions.teacherName(req));
         List<String> trials=runs.validateTrials(body.get("requiredTrials"));
+        boolean teacherScoreConfirmationRequired=runs.validateTeacherScoreConfirmation(body.get("teacherScoreConfirmationRequired"));
         runs.preserveAssignments(strList(body.get("groupIds")));
         Map<String, Object> task = store.createTask(
                 str(body.get("expId")),
@@ -168,8 +169,9 @@ public class ApiController {
         );
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("task", task);
-        runs.scheduleTask(str(task.get("id")),trials);
+        runs.scheduleTask(str(task.get("id")),trials,teacherScoreConfirmationRequired);
         task.put("lessonState","scheduled");
+        task.put("teacherScoreConfirmationRequired",teacherScoreConfirmationRequired);
         runs.provision(str(task.get("id")));
         out.put("tasks", store.listTasks());
         return out;

@@ -92,8 +92,9 @@ public class TeachingService {
             case "close" -> {
                 if(!TrialRecords.complete(r))throw new ApiException(409,"请等待该组完成本课次全部子实验后确认扣分");
                 r.put("classOpen",false);r.put("confirmationRequired",true);r.put("scorePublishedAt",now());
+                r.put("scorePublicationMode","teacher");
             }
-            case "open" -> {r.put("classOpen",true);ClassroomService.scoreChanged(r);}
+            case "open" -> {r.put("classOpen",true);r.remove("scorePublishedAt");r.remove("scorePublicationMode");ClassroomService.scoreChanged(r);}
             case "return" -> {
                 if(!Boolean.TRUE.equals(r.get("archived")))throw new ApiException(409,"操作记录尚未提交");
                 if(!Boolean.TRUE.equals(r.get("classOpen")))throw new ApiException(409,"成绩已发布；如需调整扣分，请先重新开放评分");

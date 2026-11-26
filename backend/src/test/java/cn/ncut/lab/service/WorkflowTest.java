@@ -113,6 +113,97 @@ class WorkflowTest {
         classroom.confirm(runId,student,Map.of("scoreVersion",runs.detail(runId,student).get("scoreVersion")));
         assertEquals(85.0,map(runs.detail(runId,student).get("myConfirmation")).get("score"));
     }
+    void skipTeacherConfirmation() {
+        var run=runs.load(runId,teacher,false);run.put("teacherScoreConfirmationRequired",false);
+        runs.save(run,teacher,"测试课次跳过教师确认");
+    }
+    @Test void legacyTasksStillRequireTeacherConfirmationAndCannotOverrideItInSubmission() throws Exception {
+        collect();
+        assertEquals(true,runs.detail(runId,student).get("teacherScoreConfirmationRequired"));
+        var attempt=acceptBody();attempt.put("teacherScoreConfirmationRequired",false);
+        assertEquals(409,assertThrows(ApiException.class,()->runs.archive(runId,student,attempt)).getStatus());
+        assertEquals(409,assertThrows(ApiException.class,()->classroom.confirm(runId,student,Map.of("scoreVersion",0))).getStatus());
+        assertEquals(false,runs.classroom(runId,student).get("scoreReady"));
+    }
+    @Test void skippingTeacherConfirmationKeepsCollectionEditableThenPublishesOnStudentSubmission() throws Exception {
+        skipTeacherConfirmation();configure();
+        assertEquals(409,assertThrows(ApiException.class,()->classroom.confirm(runId,student,Map.of("scoreVersion",0))).getStatus());
+        assertThrows(ApiException.class,()->runs.archive(runId,student,acceptBody()));
+        assertEquals(true,runs.detail(runId,teacher).get("classOpen"));
+        collect();
+        assertEquals(true,runs.classroom(runId,student).get("scoreReady"));
+        assertEquals(true,runs.detail(runId,student).get("classOpen"));
+        runs.photo(runId,student,photo(),"侧面");
+        assertEquals(2,list(runs.detail(runId,student).get("photos")).size());
+        teaching.deduction(runId,teacher,body("items",List.of("door")));
+        var result=runs.archive(runId,student,acceptBody());
+        assertEquals(85.0,result.get("operationScore"));assertEquals(true,result.get("archived"));
+        assertEquals(false,result.get("classOpen"));assertEquals("automatic",result.get("scorePublicationMode"));
+        assertNotNull(result.get("scorePublishedAt"));assertEquals(true,result.get("myScoreConfirmed"));
+        assertEquals(false,runs.detail(runId,mate).get("myScoreConfirmed"));
+        classroom.confirm(runId,mate,Map.of("scoreVersion",result.get("scoreVersion")));
+        assertEquals(true,runs.detail(runId,mate).get("myScoreConfirmed"));
+        assertThrows(ApiException.class,()->teaching.deduction(runId,teacher,body("items",List.of("door"))));
+        assertThrows(ApiException.class,()->runs.photo(runId,student,photo(),"补充"));
+        uploadReport(student);teaching.submit(runId,student,Map.of("requestId","without-teacher-approval"));
+        assertEquals(1,list(runs.detail(runId,student).get("reports")).size());
+    }
+    @Test void automaticConfirmationRejectsChangedScoresWithoutPublishingOrArchiving() throws Exception {
+        skipTeacherConfirmation();configure();collect();
+        int viewed=ClassroomService.version(runs.load(runId,teacher,false));
+        teaching.deduction(runId,teacher,body("items",List.of("door")));
+        var stale=acceptBody();stale.put("scoreVersion",viewed);
+        assertEquals(409,assertThrows(ApiException.class,()->runs.archive(runId,student,stale)).getStatus());
+        assertEquals(409,assertThrows(ApiException.class,()->classroom.confirm(runId,student,Map.of("scoreVersion",viewed))).getStatus());
+        var current=runs.detail(runId,student);
+        assertEquals(true,current.get("classOpen"));assertNull(current.get("scorePublishedAt"));
+        assertFalse(Boolean.TRUE.equals(current.get("archived")));
+        runs.archive(runId,student,acceptBody());
+        assertEquals(85.0,runs.detail(runId,student).get("operationScore"));
+    }
+    @Test void automaticScoreConfirmationCanBeCorrectedAndReconfirmedWithoutManualPublication() throws Exception {
+        skipTeacherConfirmation();configure();collect();
+        classroom.confirm(runId,student,Map.of("scoreVersion",0));
+        assertEquals("automatic",runs.detail(runId,teacher).get("scorePublicationMode"));
+        teaching.control(runId,teacher,body("action","open"));
+        assertEquals(false,runs.detail(runId,student).get("myScoreConfirmed"));
+        teaching.deduction(runId,teacher,body("items",List.of("door")));
+        runs.archive(runId,student,acceptBody());
+        assertEquals(85.0,runs.detail(runId,student).get("operationScore"));
+        assertEquals(true,runs.detail(runId,student).get("myScoreConfirmed"));
+    }
+    @Test void skippedConfirmationSupportsRetakesAndKeepsTheTaskPolicy() throws Exception {
+        skipTeacherConfirmation();collect();
+        review.requestRetake(runId,student,Map.of("reason","重新核对操作"));
+        assertEquals("automatic",runs.detail(runId,teacher).get("scorePublicationMode"));
+        assertEquals(409,assertThrows(ApiException.class,()->runs.archive(runId,mate,acceptBody())).getStatus());
+        var retake=body("name","补做组");retake.put("reason","按学生申请安排");retake.put("members",List.of("s1"));
+        var child=(Map<String,Object>)review.createRetake(runId,teacher,retake);
+        assertEquals(false,child.get("teacherScoreConfirmationRequired"));
+        assertEquals(true,child.get("classOpen"));assertEquals(false,child.get("scoreReady"));
+    }
+    @Test void skippedConfirmationRequiresEverySelectedTrialAndCannotSkipLessonStart() throws Exception {
+        var original=runs.load(runId,teacher,false);
+        original.put("expId",ExperimentCatalog.COMBINED);original.put("requiredTrials",List.of("STEEL_TENS","CAST_TENS"));
+        original.put("teacherScoreConfirmationRequired",false);original.put("lessonState","scheduled");original.put("classOpen",false);
+        db.update("UPDATE experiment_runs SET payload=? WHERE id=?",JsonUtil.write(original),runId);
+        assertEquals(409,assertThrows(ApiException.class,()->classroom.confirm(runId,student,Map.of("scoreVersion",0))).getStatus());
+        assertEquals(409,assertThrows(ApiException.class,()->runs.archive(runId,student,acceptBody())).getStatus());
+        original.put("lessonState","active");original.put("classOpen",true);
+        db.update("UPDATE experiment_runs SET payload=? WHERE id=?",JsonUtil.write(original),runId);
+        var request=new org.springframework.mock.web.MockHttpServletRequest();
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(new org.springframework.web.context.request.ServletRequestAttributes(request));
+        try {
+            request.setParameter("trial","STEEL_TENS");collect();
+            assertEquals(false,runs.classroom(runId,student).get("scoreReady"));
+            assertThrows(ApiException.class,()->runs.archive(runId,student,acceptBody()));
+            assertEquals(409,assertThrows(ApiException.class,()->classroom.confirm(runId,student,Map.of("scoreVersion",0))).getStatus());
+            request.setParameter("trial","CAST_TENS");collect();
+            var result=runs.archive(runId,student,acceptBody());
+            assertEquals("automatic",result.get("scorePublicationMode"));assertEquals(true,result.get("archived"));
+            assertEquals(2,list(result.get("trialItems")).size());
+        } finally {org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();}
+    }
     @Test void personalReportSubmissionWaitsForTeacherAndStudentScoreConfirmation() throws Exception {
         legacyArchive();
         assertEquals(false,runs.detail(runId,student).get("myScoreConfirmed"));

@@ -31,7 +31,15 @@ public class RunService {
         db.update("INSERT INTO task_configs(task_id,payload) VALUES(?,?)",taskId,JsonUtil.write(Map.of("requiredTrials",trials)));
     }
     public void scheduleTask(String taskId,List<String> trials) {
-        db.update("INSERT INTO task_configs(task_id,payload) VALUES(?,?)",taskId,JsonUtil.write(Map.of("requiredTrials",trials,"lessonState","scheduled")));
+        scheduleTask(taskId,trials,false);
+    }
+    public boolean validateTeacherScoreConfirmation(Object value) {
+        if(value==null)return false;
+        if(!(value instanceof Boolean required))throw new ApiException(400,"教师确认开关须为开启或关闭");
+        return required;
+    }
+    public void scheduleTask(String taskId,List<String> trials,boolean teacherScoreConfirmationRequired) {
+        db.update("INSERT INTO task_configs(task_id,payload) VALUES(?,?)",taskId,JsonUtil.write(Map.of("requiredTrials",trials,"lessonState","scheduled","teacherScoreConfirmationRequired",teacherScoreConfirmationRequired)));
     }
     @Transactional
     public Map<String,Object> startTask(String taskId,Actor actor) {
@@ -58,6 +66,7 @@ public class RunService {
         Map<String,Object> config=rows.isEmpty()?Map.of():JsonUtil.readMap(str(rows.get(0).get("payload")),Map.of());
         r.put("requiredTrials",config.getOrDefault("requiredTrials",ExperimentCatalog.TRIAL_IDS));
         r.put("lessonState",config.getOrDefault("lessonState","active"));
+        r.put("teacherScoreConfirmationRequired",ClassroomService.teacherConfirmationRequired(config));
         if("scheduled".equals(r.get("lessonState")))r.put("classOpen",false);
         r.put("place",str(task.get("place")));r.put("scoreVersion",0);r.put("confirmationRequired",true);
     }
@@ -75,6 +84,7 @@ public class RunService {
         student.put("status",state);student.put("groupName",r.get("groupName"));student.put("workflowRunId",r.get("id"));student.put("requiredTrials",r.get("requiredTrials"));
         student.put("operationScore",r.get("operationScore"));student.put("personalScore",latest.get("finalScore"));student.put("personalComment",latest.get("finalComment"));
         student.put("lessonState",r.getOrDefault("lessonState","active"));
+        student.put("teacherScoreConfirmationRequired",r.get("teacherScoreConfirmationRequired"));
         snapshot.put("mates",r.get("members"));
     }
     static String id() { return UUID.randomUUID().toString(); }
@@ -283,7 +293,7 @@ public class RunService {
                 s.put("collectionComplete",completedTrials==trialTotal);
                 s.put("completedTrials",completedTrials);s.put("trialTotal",trialTotal);
                 s.put("deductionCount",list(r.get("deductions")).stream().filter(d->!Boolean.TRUE.equals(d.get("voided"))).count());
-                for(String key:List.of("scoreVersion","scorePublishedAt"))s.put(key,r.get(key));
+                for(String key:List.of("scoreVersion","scorePublishedAt","teacherScoreConfirmationRequired","scorePublicationMode","scoreReady"))s.put(key,r.get(key));
                 out.add(s);
             } catch (ApiException ignored) { /* 跳过单条损坏或无权的记录，避免整表加载失败 */ }
         }
@@ -329,7 +339,7 @@ public class RunService {
     public Map<String,Object> classroom(String id,Actor a) {
         Map<String,Object> r=load(id,a,false),out=new LinkedHashMap<>();
         ClassroomService.expose(r,a);
-        for(String key:List.of("deductions","classOpen","finalScore","finalComment","revision","archived","archivedAt","scorePublishedAt","scoreVersion","confirmationRequired","myScoreConfirmed","myConfirmation","retakeRequest","lessonState"))out.put(key,r.get(key));
+        for(String key:List.of("deductions","classOpen","finalScore","finalComment","revision","archived","archivedAt","scorePublishedAt","scoreVersion","confirmationRequired","myScoreConfirmed","myConfirmation","retakeRequest","lessonState","teacherScoreConfirmationRequired","scorePublicationMode","scoreReady"))out.put(key,r.get(key));
         out.put("operationScore",operationScore(r));out.put("calculatedScore",calculatedScore(r));return out;
     }
     public Map<String,Object> legacy(String id,Actor a) {
@@ -479,7 +489,7 @@ public class RunService {
         Map<String,Object> r=load(id,a,true);checkRevision(r,b);
         if("scheduled".equals(r.get("lessonState")))throw new ApiException(409,"本课次尚未开始");
         if(Boolean.TRUE.equals(r.get("archived")))throw new ApiException(409,"操作记录已提交");
-        if(Boolean.TRUE.equals(r.get("classOpen")))throw new ApiException(409,"请等待教师确认扣分后再提交操作记录");
+        if(Boolean.TRUE.equals(r.get("classOpen"))&&ClassroomService.teacherConfirmationRequired(r))throw new ApiException(409,"请等待教师确认扣分后再提交操作记录");
         if(!str(ClassroomService.version(r)).equals(str(b.get("scoreVersion"))))throw new ApiException(409,"操作成绩已更新，请重新核对后提交");
         String retakeStatus=str(map(r.get("retakeRequest")).get("status"));
         if(Set.of("pending","arranged").contains(retakeStatus))throw new ApiException(409,"已申请或安排重做，请先处理重做申请");
@@ -489,6 +499,7 @@ public class RunService {
             if(list(r.get("photos")).isEmpty())throw new ApiException(400,"请先采集断口照片");
             if(map(r.get("data")).isEmpty())throw new ApiException(400,"断口已保存；请补齐本次原设备数据后归档");
         }
+        ClassroomService.publishAutomatically(r);
         ClassroomService.recordConfirmation(r,a.id(),"confirmed","");
         r.put("archived",true);r.put("archivedAt",now());r.put("status","archived");save(r,a,"接受操作成绩并提交实验操作记录");
         db.update("INSERT INTO run_archives(id,run_id,payload,created_at) VALUES(?,?,?,?)",id(),id,JsonUtil.write(TrialRecords.stored(r)),now());

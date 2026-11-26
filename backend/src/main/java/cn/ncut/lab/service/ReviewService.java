@@ -23,12 +23,14 @@ public class ReviewService {
         if(a.teacher())throw new ApiException(403,"请由学生本人申请重做");
         Map<String,Object> r=runs.load(id,a,true);
         if(!TrialRecords.complete(r))throw new ApiException(409,"请先完成本课次全部子实验");
-        if(Boolean.TRUE.equals(r.get("classOpen")))throw new ApiException(409,"教师尚未发布操作成绩");
+        if(Boolean.TRUE.equals(r.get("classOpen"))&&ClassroomService.teacherConfirmationRequired(r))throw new ApiException(409,"教师尚未发布操作成绩");
         if(ClassroomService.confirmed(r,a.id()))throw new ApiException(409,"成绩已确认，不能再申请重做");
         Map<String,Object> existing=map(r.get("retakeRequest"));
         if("pending".equals(existing.get("status")))throw new ApiException(409,"重做申请已提交，请等待教师处理");
         if("arranged".equals(existing.get("status")))throw new ApiException(409,"教师已安排重做，请进入新的实验记录");
-        r.put("retakeRequest",Map.of("by",a.id(),"reason",required(b.get("reason"),"重做原因"),"at",now(),"status","pending"));
+        String reason=required(b.get("reason"),"重做原因");
+        ClassroomService.publishAutomatically(r);
+        r.put("retakeRequest",Map.of("by",a.id(),"reason",reason,"at",now(),"status","pending"));
         runs.save(r,a,"申请重新实验");return runs.detail(id,a);
     }
     @Transactional
@@ -67,6 +69,7 @@ public class ReviewService {
         Map<String,Object> child=new LinkedHashMap<>();
         for(String key:List.of("taskId","groupId","expId","expName","timeText","place","requiredTrials"))child.put(key,parent.get(key));
         child.put("scoreVersion",0);child.put("confirmationRequired",true);
+        child.put("teacherScoreConfirmationRequired",ClassroomService.teacherConfirmationRequired(parent));
         child.put("id",childId);child.put("parentId",id);child.put("groupName",required(b.get("name"),"临时组名称"));child.put("attempt",attempt);child.put("members",snapshot);
         child.put("status","pending");child.put("classOpen",true);child.put("createdAt",now());child.put("photos",new ArrayList<>());child.put("deductions",new ArrayList<>());
         child.put("audit",List.of(Map.of("by",a.id(),"at",now(),"action","建立临时组重做："+reason)));
