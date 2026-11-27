@@ -29,20 +29,6 @@ async function pickTrial(id) {
 const runs = ref([]), run = ref(null), busy = ref(false), error = ref(''), notice = ref(''), labStatus = ref(null)
 const wanceSource = ref(null)
 const captureSourceName = computed(() => wanceSource.value?.configured && wanceSource.value.stationName !== '本机实验台' ? wanceSource.value.stationName : '')
-const showTemporaryFileCapture = import.meta.env.DEV
-const temporaryCaptureInput = ref(null)
-async function onTemporaryCapturePick(event) {
-  const input = event.target, file = input.files?.[0]
-  if (!file) return
-  try {
-    await action(async () => {
-      if (!/\.mdb$/i.test(file.name)) throw new Error('请选择万测软件生成的 .mdb 试验文件')
-      if (file.size > 20 * 1024 * 1024) throw new Error('试验文件不能超过20MB')
-      run.value = await call(`/runs/${run.value.id}/data/wance-file`, 'POST', form(file))
-      setMeta()
-    }, '试验文件已采集')
-  } finally { input.value = '' }
-}
 const dataUndoDialog = ref(null), dataUndoPending = ref(null), dataUndoError = ref('')
 function openDataUndo() {
   const current = run.value
@@ -609,7 +595,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
           <button v-for="(s, i) in labSteps" :key="s.id" type="button" class="wf-step" :class="{ active: tab === s.id, done: labStepDone(s.id) }" @click="goLabStep(s.id)"><span class="wf-step-num">{{ i + 1 }}</span><span class="wf-step-title">{{ s.title }}</span></button>
         </nav>
         <section v-if="isLabPage && run.lessonState !== 'scheduled' && tab === 'data'" class="wf-panel wf-panel--student" aria-label="实验数据">
-          <div v-if="run.data || (!run.archived && run.classOpen)" class="wf-group-reports-head wf-data-head"><span v-if="run.data" class="tag">已采集</span><span v-if="captureSourceName" class="wf-source-name">{{ captureSourceName }}</span><div v-if="!run.archived && run.classOpen" class="wf-data-actions"><template v-if="showTemporaryFileCapture"><input ref="temporaryCaptureInput" type="file" accept=".mdb" hidden :disabled="busy" aria-label="选择万测试验文件（临时测试）" @change="onTemporaryCapturePick"><button type="button" class="btn btn-ghost" :disabled="busy" title="选择万测 .mdb 文件，仍校验开课时间及重复数据" @click="temporaryCaptureInput.click()">选择文件（临时测试）</button></template><button v-if="run.data?.fileId" type="button" class="btn btn-ghost wf-data-undo" :disabled="busy" @click="openDataUndo">撤销采集</button><button type="button" class="btn btn-primary" :disabled="busy" @click="action(syncWanceData)">{{ busy ? '处理中…' : '自动采集' }}</button></div></div>
+          <div v-if="run.data || (!run.archived && run.classOpen)" class="wf-group-reports-head wf-data-head"><span v-if="run.data" class="tag">已采集</span><span v-if="captureSourceName" class="wf-source-name">{{ captureSourceName }}</span><div v-if="!run.archived && run.classOpen" class="wf-data-actions"><button v-if="run.data?.fileId" type="button" class="btn btn-ghost wf-data-undo" :disabled="busy" @click="openDataUndo">撤销采集</button><button type="button" class="btn btn-primary" :disabled="busy" @click="action(syncWanceData)">{{ busy ? '处理中…' : '自动采集' }}</button></div></div>
           <dialog ref="dataUndoDialog" class="wf-data-undo-dialog" aria-labelledby="data-undo-title" aria-describedby="data-undo-description" @cancel="event => { if (busy) event.preventDefault() }" @click="event => { if (event.target === dataUndoDialog && !busy) dataUndoDialog.close() }">
             <h3 id="data-undo-title">撤销本次采集？</h3>
             <p class="wf-data-undo-scope"><strong>{{ dataUndoPending?.trialName }}</strong><span v-if="dataUndoPending?.experimentAt">试验时间 {{ stamp(dataUndoPending.experimentAt) }}</span></p>
