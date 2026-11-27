@@ -27,6 +27,47 @@ async function pickTrial(id) {
   await select(run.value.id)
 }
 const runs = ref([]), run = ref(null), busy = ref(false), error = ref(''), notice = ref(''), labStatus = ref(null)
+const wanceSource = ref(null)
+const captureSourceName = computed(() => wanceSource.value?.configured && wanceSource.value.stationName !== '本机实验台' ? wanceSource.value.stationName : '')
+const showTemporaryFileCapture = import.meta.env.DEV
+const temporaryCaptureInput = ref(null)
+async function onTemporaryCapturePick(event) {
+  const input = event.target, file = input.files?.[0]
+  if (!file) return
+  try {
+    await action(async () => {
+      if (!/\.mdb$/i.test(file.name)) throw new Error('请选择万测软件生成的 .mdb 试验文件')
+      if (file.size > 20 * 1024 * 1024) throw new Error('试验文件不能超过20MB')
+      run.value = await call(`/runs/${run.value.id}/data/wance-file`, 'POST', form(file))
+      setMeta()
+    }, '试验文件已采集')
+  } finally { input.value = '' }
+}
+const dataUndoDialog = ref(null), dataUndoPending = ref(null), dataUndoError = ref('')
+function openDataUndo() {
+  const current = run.value
+  dataUndoPending.value = { runId: current.id, trialId: current.trialId || activeTrial.value, trialName: current.trialName || current.expName, fileId: current.data.fileId, revision: current.revision, experimentAt: current.data.experimentAtFromFile }
+  dataUndoError.value = ''
+  dataUndoDialog.value?.showModal()
+}
+async function undoCapturedData() {
+  if (busy.value || !dataUndoPending.value) return
+  const pending = dataUndoPending.value
+  busy.value = true; dataUndoError.value = ''; error.value = ''; notice.value = ''
+  try {
+    const updated = await workflowCall(`/runs/${encodeURIComponent(pending.runId)}/data?trial=${encodeURIComponent(pending.trialId)}`, 'DELETE', { revision: pending.revision, fileId: pending.fileId })
+    dataUndoDialog.value?.close()
+    run.value = updated
+    setMeta()
+    notice.value = '已撤销采集'
+  } catch (e) { dataUndoError.value = e.message }
+  finally { busy.value = false }
+}
+async function loadWanceSource() {
+  if (!isLabPage.value) return
+  try { wanceSource.value = await call('/wance/status') }
+  catch { wanceSource.value = null }
+}
 const labEmptyMessage = computed(() => {
   if (props.teacher || runs.value.length) return ''
   const r = labStatus.value?.reason
@@ -252,6 +293,22 @@ function onPickRun(event) {
 }
 const stamp = v => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '—'
 const points = computed(() => run.value?.data?.points || [])
+const captureMetrics = computed(() => {
+  const data = run.value?.data || {}, results = data.deviceResults || {}
+  const geometry = data.geometry || run.value?.geometry || {}
+  return [
+    { key: 'maxF', label: '最大力', value: data.maxF, unit: 'kN', primary: true },
+    { key: 'maxD', label: '最大位移', value: data.maxD, unit: 'mm' },
+    { key: 'tensileStrength', label: '抗拉强度', value: results.tensileStrength, unit: 'MPa' },
+    { key: 'elasticModulus', label: '弹性模量', value: results.elasticModulus == null ? undefined : results.elasticModulus / 1000, unit: 'GPa', review: results.modulusNeedsReview, reason: results.modulusReviewReason },
+    { key: 'upperYieldStrength', label: '上屈服强度', value: results.upperYieldStrength, unit: 'MPa' },
+    { key: 'lowerYieldStrength', label: '下屈服强度', value: results.lowerYieldStrength, unit: 'MPa' },
+    { key: 'gaugeLength', label: '原始标距', value: geometry.gaugeLength, unit: 'mm' },
+    { key: 'area', label: '原始截面积', value: geometry.area, unit: 'mm²' },
+  ]
+})
+const metricNumber = value => typeof value === 'number' && Number.isFinite(value)
+  ? value.toLocaleString('zh-CN', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '—'
 const activeDeductions = computed(() => (run.value?.deductions || []).filter(d => !d.voided))
 async function action(fn, message = '') {
   if (busy.value) return
@@ -267,6 +324,7 @@ async function bootWorkflow() {
   error.value = ''
   try {
     await loadSettings()
+    await loadWanceSource()
     await listRuns()
     if (runs.value.length) {
       const id = runs.value.find(r => r.id === sessionStorage.getItem(selectionKey))?.id || runs.value.find(r => !props.teacher && r.taskId === props.taskId)?.id || runs.value[0].id
@@ -407,7 +465,9 @@ async function snap() {
   stopCamera()
 }
 async function syncWanceData() {
+  await loadWanceSource()
   run.value = await call(`/runs/${run.value.id}/data/wance`, 'POST', {})
+  if (run.value.data?.stationName) wanceSource.value = { configured: true, stationName: run.value.data.stationName }
   setMeta()
 }
 watch(() => props.teacher, teacher => {
@@ -542,16 +602,30 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
         </section>
         <nav v-if="run.trialItems && isLabPage && run.lessonState !== 'scheduled' && tab !== 'operation'" class="wf-trial-nav" aria-label="试验子项">
           <button v-for="item in run.trialItems" :key="item.id" type="button" :class="{ active: run.trialId === item.id }" :disabled="busy" @click="action(() => pickTrial(item.id))"><strong>{{ item.name }}</strong><small>{{ item.dataReady && item.photoReady ? '采集完成' : item.dataReady || item.photoReady ? '采集中' : '待采集' }}</small></button>
+          <p v-if="!run.archived && run.classOpen" class="wf-trial-hint">请确认所选子实验与刚完成的试验一致。</p>
         </nav>
         <section v-if="isLabPage && run.lessonState === 'scheduled'" class="wf-panel wf-panel--student wf-waiting"><h3>{{ run.scheduledStartAt ? '等待到点开放' : '等待教师开课' }}</h3><time v-if="run.scheduledStartAt">{{ run.timeText?.replace('T', ' ') }} 开放采集</time></section>
         <nav v-if="isLabPage && run.lessonState !== 'scheduled' && tab !== 'operation'" class="wf-stepper" aria-label="资料采集步骤">
           <button v-for="(s, i) in labSteps" :key="s.id" type="button" class="wf-step" :class="{ active: tab === s.id, done: labStepDone(s.id) }" @click="goLabStep(s.id)"><span class="wf-step-num">{{ i + 1 }}</span><span class="wf-step-title">{{ s.title }}</span></button>
         </nav>
         <section v-if="isLabPage && run.lessonState !== 'scheduled' && tab === 'data'" class="wf-panel wf-panel--student" aria-label="实验数据">
-          <div v-if="run.data || (!run.archived && run.classOpen)" class="wf-group-reports-head wf-data-head"><span v-if="run.data" class="tag">已采集</span><button v-if="!run.archived && run.classOpen" type="button" class="btn btn-primary" :disabled="busy" @click="action(syncWanceData)">{{ busy ? '正在采集…' : '自动采集' }}</button></div>
+          <div v-if="run.data || (!run.archived && run.classOpen)" class="wf-group-reports-head wf-data-head"><span v-if="run.data" class="tag">已采集</span><span v-if="captureSourceName" class="wf-source-name">{{ captureSourceName }}</span><div v-if="!run.archived && run.classOpen" class="wf-data-actions"><template v-if="showTemporaryFileCapture"><input ref="temporaryCaptureInput" type="file" accept=".mdb" hidden :disabled="busy" aria-label="选择万测试验文件（临时测试）" @change="onTemporaryCapturePick"><button type="button" class="btn btn-ghost" :disabled="busy" title="选择万测 .mdb 文件，仍校验开课时间及重复数据" @click="temporaryCaptureInput.click()">选择文件（临时测试）</button></template><button v-if="run.data?.fileId" type="button" class="btn btn-ghost wf-data-undo" :disabled="busy" @click="openDataUndo">撤销采集</button><button type="button" class="btn btn-primary" :disabled="busy" @click="action(syncWanceData)">{{ busy ? '处理中…' : '自动采集' }}</button></div></div>
+          <dialog ref="dataUndoDialog" class="wf-data-undo-dialog" aria-labelledby="data-undo-title" aria-describedby="data-undo-description" @cancel="event => { if (busy) event.preventDefault() }" @click="event => { if (event.target === dataUndoDialog && !busy) dataUndoDialog.close() }">
+            <h3 id="data-undo-title">撤销本次采集？</h3>
+            <p class="wf-data-undo-scope"><strong>{{ dataUndoPending?.trialName }}</strong><span v-if="dataUndoPending?.experimentAt">试验时间 {{ stamp(dataUndoPending.experimentAt) }}</span></p>
+            <p id="data-undo-description">将清除当前子实验的数据及相关分析，已采集的照片保留。重新采集仍需在开课后5小时内完成。</p>
+            <p v-if="dataUndoError" class="wf-data-undo-error" role="alert">{{ dataUndoError }}</p>
+            <footer><button type="button" class="btn btn-ghost" autofocus :disabled="busy" @click="dataUndoDialog.close()">保留数据</button><button type="button" class="btn wf-data-undo-confirm" :disabled="busy" @click="undoCapturedData">{{ busy ? '正在撤销…' : '确认撤销' }}</button></footer>
+          </dialog>
+          <p v-if="wanceSource?.configured === false" class="wf-capture-notice">{{ wanceSource.message }}</p>
           <p v-if="busy && !run.data" class="wf-empty wf-empty--inline">正在读取试验数据…</p>
           <div v-else-if="run.data" class="wf-data wf-data--linked">
-            <div class="wf-metrics wf-metrics--compact"><div><small>最大力</small><strong>{{ run.data.maxF.toFixed(3) }} kN</strong></div><div><small>最大位移</small><strong>{{ run.data.maxD.toFixed(3) }} mm</strong></div><div><small>数据点</small><strong>{{ run.data.pointCount }}</strong></div></div>
+            <dl class="wf-capture-metrics" aria-label="试验数据指标">
+              <div v-for="metric in captureMetrics" :key="metric.key" class="wf-capture-metric" :class="{ 'is-primary': metric.primary }">
+                <dt>{{ metric.label }}<span v-if="metric.review && metric.value != null" class="wf-metric-review" :title="metric.reason || '设备计算结果，请核对测量方式'">待核验</span></dt>
+                <dd><strong>{{ metricNumber(metric.value) }}</strong><span v-if="metric.value != null && Number.isFinite(metric.value)" class="wf-metric-unit">{{ metric.unit }}</span></dd>
+              </div>
+            </dl>
             <CurveChart :points="points" />
             <StressStrainChart v-if="isStressStrainTrial(run.trialId || run.expId)" :points="points" :geometry="run.geometry" />
           </div>
@@ -842,4 +916,44 @@ onUnmounted(() => { disposed = true; clearInterval(timer); stopCamera(); Object.
 .wf-data-head > .btn { margin-left: auto; }
 .wf-teacher-bar--report { grid-template-columns: minmax(0, 420px); }
 .wf-teacher-bar--report .wf-teacher-bar__pick { grid-column: 1; grid-row: auto; }
+</style>
+
+<style>
+.wf-source-name { margin-left: auto; color: #617581; font-size: 13px; }
+.wf-data-head .wf-source-name + .btn { margin-left: 12px; }
+.wf-capture-notice, .wf-capture-provenance { margin: 8px 0 12px; color: #617581; font-size: 13px; line-height: 1.6; }
+.wf-data-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
+.wf-data-actions > .btn { height: 32px; min-height: 32px; padding: 0 11px; border-radius: 7px; font-size: 13px; line-height: 20px; }
+.workflow .wf-trial-hint { grid-column: 1 / -1; margin: 0; color: #6b7d85; font-size: 12px; line-height: 1.6; }
+.wf-source-name + .wf-data-actions { margin-left: 12px; }
+.wf-data-undo { color: #8c4b3e; }
+.wf-data-undo-dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); box-sizing: border-box; overflow: auto; padding: 26px; border: 1px solid #dce6e9; border-radius: 12px; background: #fff; color: #223945; }
+.wf-data-undo-dialog::backdrop { background: #14263066; }
+.wf-data-undo-dialog h3 { margin: 0 0 18px; font-size: 20px; }
+.wf-data-undo-scope { display: grid; gap: 4px; margin: 0 0 16px; }
+.wf-data-undo-scope span, #data-undo-description { color: #617581; font-size: 14px; }
+.wf-data-undo-dialog footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.wf-data-undo-confirm { background: #9b4938; color: #fff; border-color: #9b4938; }
+.wf-data-undo-confirm:hover { background: #843c2e; }
+.wf-data-undo-error { color: #a33728; font-size: 14px; }
+.wf-capture-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 0 24px; padding: 0; border: 1px solid #dfe8eb; border-radius: 10px; background: #f7fafb; overflow: hidden; }
+.wf-capture-metric { min-width: 0; padding: 12px 16px; border-right: 1px solid #dfe8eb; border-bottom: 1px solid #dfe8eb; }
+.wf-capture-metric:nth-child(4n) { border-right: 0; }
+.wf-capture-metric:nth-last-child(-n + 4) { border-bottom: 0; }
+.wf-capture-metric dt { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; color: #617581; font-size: 13px; line-height: 20px; }
+.wf-capture-metric dd { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; margin: 0; line-height: 28px; font-variant-numeric: tabular-nums; }
+.wf-capture-metric dd strong { color: #29434e; font-size: 22px; font-weight: 600; }
+.wf-capture-metric.is-primary dd strong { color: #327987; }
+.wf-metric-unit { color: #617581; font-size: 12px; font-weight: 400; }
+.wf-metric-review { color: #92602a; font-size: 11px; font-weight: 400; line-height: 18px; }
+@media (max-width: 620px) {
+  .wf-capture-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wf-capture-metric { padding: 11px 13px; }
+  .wf-capture-metric:nth-child(n) { border-right: 1px solid #dfe8eb; border-bottom: 1px solid #dfe8eb; }
+  .wf-capture-metric:nth-child(2n) { border-right: 0; }
+  .wf-capture-metric:nth-last-child(-n + 2) { border-bottom: 0; }
+  .wf-capture-metric dd strong { font-size: 20px; }
+}
+@media (max-width: 600px) { .wf-data-head { flex-wrap: wrap; gap: 10px; } .wf-source-name { margin-left: 0; } .wf-data-head .wf-source-name + .btn { margin-left: auto; } }
+@media (max-width: 600px) { .wf-source-name + .wf-data-actions { margin-left: auto; } .wf-data-undo-dialog { padding: 22px 18px; } }
 </style>

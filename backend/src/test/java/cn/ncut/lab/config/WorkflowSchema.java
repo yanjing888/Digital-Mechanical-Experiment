@@ -7,6 +7,7 @@ public final class WorkflowSchema {
     private WorkflowSchema() {}
 
     public static void create(JdbcTemplate db) {
+        DataCaptureSchema.create(db);
         db.execute("CREATE TABLE IF NOT EXISTS task_configs (task_id VARCHAR(64) PRIMARY KEY,payload LONGTEXT NOT NULL)");
         db.execute("CREATE TABLE IF NOT EXISTS experiment_runs (id VARCHAR(64) PRIMARY KEY, task_id VARCHAR(64) NOT NULL, group_id VARCHAR(64) NOT NULL, parent_id VARCHAR(64), payload LONGTEXT NOT NULL, revision INT NOT NULL DEFAULT 0, created_at VARCHAR(40) NOT NULL)");
         db.execute("CREATE TABLE IF NOT EXISTS run_members (run_id VARCHAR(64) NOT NULL, sid VARCHAR(32) NOT NULL, name VARCHAR(64) NOT NULL, PRIMARY KEY(run_id,sid))");

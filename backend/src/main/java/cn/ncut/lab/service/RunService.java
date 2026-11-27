@@ -309,8 +309,21 @@ public class RunService {
     static double calculatedScore(Map<String,Object> r) {
         return Math.max(0,100-list(r.get("deductions")).stream().filter(d->!Boolean.TRUE.equals(d.get("voided"))).mapToDouble(d->score(d.get("points"))).sum());
     }
+    private void enrichStoredDeviceData(Map<String,Object> run) {
+        var data=map(run.get("data"));
+        if(!"wance_mdb".equals(data.get("source"))||data.containsKey("deviceResults")||str(data.get("fileId")).isEmpty())return;
+        var files=db.queryForList("SELECT contents FROM run_files WHERE id=? AND run_id=? AND kind='data'",data.get("fileId"),run.get("id"));
+        if(files.isEmpty()||!(files.get(0).get("contents") instanceof byte[] content))return;
+        try {
+            var summary=WanceMdbReader.storedSummary(content,WanceMdbReader.asInt(data.get("testNo")));
+            var enriched=new LinkedHashMap<>(data);enriched.put("deviceResults",summary.get("deviceResults"));
+            if(!map(summary.get("geometry")).isEmpty())enriched.put("geometry",summary.get("geometry"));
+            run.put("data",enriched);
+        } catch(IOException|IllegalArgumentException ignored) { /* A damaged legacy attachment must not hide its saved curve. */ }
+    }
     public Map<String,Object> detail(String id,Actor a) {
         Map<String,Object> r=load(id,a,false); r.put("operationScore",operationScore(r)); r.put("calculatedScore",calculatedScore(r));
+        enrichStoredDeviceData(r);
         ClassroomService.expose(r,a);
         r.put("adoptedFor",db.queryForList("SELECT sid FROM adopted_runs WHERE run_id=?",id).stream().map(m->m.get("sid")).toList());
         List<Map<String,Object>> reports=new ArrayList<>();
@@ -443,21 +456,29 @@ public class RunService {
     }
     @Transactional
     public Map<String,Object> importWanceData(String id,Actor a) {
+        return importWanceData(id,a,"127.0.0.1");
+    }
+    CaptureWindow captureWindow(Map<String,Object> run) {
+        var tasks=db.queryForList("SELECT * FROM tasks WHERE id=?",run.get("taskId"));
+        var window=CaptureWindow.of(run,tasks.isEmpty()?Map.of():tasks.get(0),Instant.now());
+        window.requireOpen();
+        return window;
+    }
+    @Transactional
+    public Map<String,Object> importWanceData(String id,Actor a,String clientAddress) {
         Map<String,Object> r=load(id,a,true); mutable(r);
+        var window=captureWindow(r);
         try {
-            Path mdb=WanceMdbReader.latestMdb(wance.directory());
-            byte[] content=Files.readAllBytes(mdb);
-            rejectForeignData(id,content);
-            if (TrialRecords.combined(r)) {
-                for (Map<String,Object> trial : TrialRecords.items(r)) {
-                    if (Objects.equals(trial.get("id"),r.get("trialId"))) continue;
-                    String previousFile=str(map(trial.get("data")).get("fileId"));
-                    if (!previousFile.isBlank() && Arrays.equals(content,(byte[])getFile(previousFile,a).get("contents")))
-                        throw new ApiException(409,"等待新的试验数据：设备最新数据已用于“"+trial.get("name")+"”，请完成当前试验后重新读取。");
-                }
-            }
-            Map<String,Object> parsed=new LinkedHashMap<>(WanceMdbReader.parse(mdb));
+            var station=wance.station(clientAddress);
+            if(!Files.isDirectory(station.directory()))throw new ApiException(503,"实验台数据目录不可用，请联系管理员检查共享目录或采集同步");
+            Path mdb=WanceMdbReader.latestMdb(station.directory(),window);
+            var snapshot=WanceMdbReader.readStable(mdb,Instant.now(),wance.settleTime());
+            byte[] content=snapshot.content();
+            Map<String,Object> parsed=new LinkedHashMap<>(WanceMdbReader.parseSnapshot(mdb,snapshot));
+            DataClaims.claim(db,r,content);
             parsed.put("sourceMode","device_file");
+            parsed.put("stationId",station.id());parsed.put("stationName",station.name());
+            parsed.put("validFrom",window.start().toString());parsed.put("validUntil",window.end().toString());
             Map<String,Object> geometry=map(parsed.get("geometry"));
             if(geometry.isEmpty())r.remove("geometry");
             else r.put("geometry",geometry);
@@ -470,22 +491,60 @@ public class RunService {
         } catch(ApiException e) { throw e; } catch(IOException e) { throw new ApiException(503,"读取万测数据失败："+e.getMessage()); }
     }
     public Map<String,Object> wanceStatus() throws IOException { return wance.status(); }
+    public Map<String,Object> wanceStatus(String clientAddress) { return wance.status(clientAddress); }
+    @Transactional
+    public Map<String,Object> importWanceFile(String id,Actor a,MultipartFile upload,String clientAddress) {
+        Map<String,Object> r=load(id,a,true);mutable(r);
+        var window=captureWindow(r);var station=wance.station(clientAddress);
+        String name=str(upload.getOriginalFilename()).replace('\\','/');name=name.substring(name.lastIndexOf('/')+1);
+        if(!name.toLowerCase(Locale.ROOT).endsWith(".mdb"))throw new ApiException(400,"请选择万测软件生成的 .mdb 试验文件");
+        window.require(CaptureWindow.uploadedTime(name));
+        byte[] content=bytes(upload);
+        try {
+            Map<String,Object> parsed=new LinkedHashMap<>(WanceMdbReader.parseSnapshot(Path.of(name),new WanceMdbReader.Snapshot(content,Instant.now())));
+            DataClaims.claim(db,r,content);
+            String fid=file(id,a,"data",new MockBytesMultipart(name,content),content,"application/x-msaccess","","ready");
+            parsed.put("sourceMode","manual_test_file");parsed.put("stationId",station.id());parsed.put("stationName",station.name());
+            parsed.put("validFrom",window.start().toString());parsed.put("validUntil",window.end().toString());
+            parsed.put("fileId",fid);parsed.put("fileName",name);parsed.put("importedAt",now());
+            Map<String,Object> geometry=map(parsed.get("geometry"));
+            if(geometry.isEmpty())r.remove("geometry");else r.put("geometry",geometry);
+            r.put("data",parsed);r.remove("analysis");r.remove("fractureSummary");
+            if(str(r.get("experimentAt")).isBlank())r.put("experimentAt",parsed.get("experimentAtFromFile"));
+            save(r,a,"手选万测试验文件（临时测试）："+name);return detail(id,a);
+        } catch(ApiException e) {throw e;} catch(IOException e) {throw new ApiException(400,"无法读取该万测文件，请选择软件生成并已保存完整的 .mdb 试验文件");}
+    }
+    @Transactional
+    public Map<String,Object> undoData(String id,Actor a,Map<String,Object> body) {
+        Map<String,Object> r=load(id,a,true);checkRevision(r,body);mutable(r);
+        var data=map(r.get("data"));String fileId=str(data.get("fileId"));
+        if(fileId.isEmpty())throw new ApiException(409,"当前子实验没有可撤销的采集数据");
+        if(!fileId.equals(str(body.get("fileId"))))throw new ApiException(409,"采集数据已更新，请刷新核对后再撤销");
+        DataClaims.release(db,r,fileId);
+        r.remove("data");r.remove("geometry");r.remove("analysis");r.remove("fractureSummary");
+        if(str(r.get("experimentAt")).equals(str(data.get("experimentAtFromFile"))))r.remove("experimentAt");
+        r.put("status","collecting");
+        save(r,a,"撤销"+str(r.getOrDefault("trialName",r.get("expName")))+"的数据采集（原文件留存）："+str(data.get("fileName")));
+        return detail(id,a);
+    }
     @Transactional
     public Map<String,Object> importData(String id,Actor a,MultipartFile f,int start,int force,int displacement,String unit) {
+        return importData(id,a,f,start,force,displacement,unit,"127.0.0.1");
+    }
+    @Transactional
+    public Map<String,Object> importData(String id,Actor a,MultipartFile f,int start,int force,int displacement,String unit,String clientAddress) {
         Map<String,Object> r=load(id,a,true); mutable(r); byte[] content=bytes(f);
-        rejectForeignData(id,content);
+        var window=captureWindow(r);
+        var station=wance.station(clientAddress);
+        Instant experimentAt=CaptureWindow.uploadedTime(f.getOriginalFilename());window.require(experimentAt);
         Map<String,Object> parsed=new LinkedHashMap<>(ExperimentDataParser.parse(ExperimentDataParser.rows(content,str(f.getOriginalFilename())),start,force,displacement,unit));
+        DataClaims.claim(db,r,content);
         String fid=file(id,a,"data",f,content,"application/octet-stream","","ready");
         parsed.put("fileId",fid);parsed.put("fileName",str(f.getOriginalFilename()));parsed.put("importedAt",now());parsed.put("source","device_file");
         parsed.put("mapping",Map.of("startRow",start,"forceColumn",force,"displacementColumn",displacement,"originalForceUnit",unit));
+        parsed.put("stationId",station.id());parsed.put("stationName",station.name());parsed.put("experimentAtFromFile",experimentAt.toString());
+        parsed.put("validFrom",window.start().toString());parsed.put("validUntil",window.end().toString());
         r.put("data",parsed);r.remove("analysis");r.remove("fractureSummary");save(r,a,"导入原设备实验数据");return detail(id,a);
-    }
-    void rejectForeignData(String id,byte[] content) {
-        try {
-            String hash=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content));
-            if(db.queryForObject("SELECT COUNT(*) FROM run_files WHERE kind='data' AND sha256=? AND run_id<>?",Integer.class,hash,id)>0)
-                throw new ApiException(409,"该文件已关联其他实验记录，请选择本组本次试验文件");
-        } catch(java.security.NoSuchAlgorithmException e){throw new IllegalStateException(e);}
     }
     @Transactional
     public Map<String,Object> archive(String id,Actor a,Map<String,Object> b) {

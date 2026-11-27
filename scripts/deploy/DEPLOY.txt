@@ -26,5 +26,22 @@ For Wance MDB acquisition, edit config/wance.properties: data.dir=actual/data/pa
 (use forward slashes). Existing experimental records/uploads must be retained
 separately; the release ZIP contains neither production data nor database credentials.
 
+Central server / multiple machines: enable station.ids in config/wance.properties.
+For each station set station.<id>.name, station.<id>.clients (the registered capture
+computer IP), and station.<id>.dir (a separate share or synchronized directory that
+the SERVER account can read). Never point different stations at the same directory.
+Unknown client computers cannot collect data. A browser cannot read its PC's files
+on behalf of the central server; configure the share/synchronization first.
+If a reverse proxy is on another host, set TRUSTED_PROXY_PATTERN to that proxy's
+exact IP pattern and forward X-Forwarded-For correctly. Loopback proxies are trusted
+by default; arbitrary private-network clients are not trusted as proxies.
+Synchronize capture-PC clocks. Device file times are interpreted in Asia/Shanghai.
+Only files generated within 5 hours of lesson opening are eligible (both endpoints
+included, even across midnight); future-dated files are rejected.
+Acquisition and manual import also close after those 5 hours; eligible older files
+cannot be imported after the deadline. Files
+must stop changing for at least data.settle-seconds (default 2). Reusing a file for
+another group/lesson/subtrial is rejected. No material identity is inferred.
+
 Advanced: powershell -NoProfile -ExecutionPolicy Bypass -File services.ps1
           -Action start -BackendPort 8586 -FracturePort 8090

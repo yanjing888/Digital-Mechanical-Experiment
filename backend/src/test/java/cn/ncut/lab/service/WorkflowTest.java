@@ -23,6 +23,8 @@ import static cn.ncut.lab.service.RunService.*;
 
 @SpringJUnitConfig(WorkflowTest.Config.class)
 class WorkflowTest {
+    static final java.time.Instant DEVICE_TIME=java.time.Instant.now().minusSeconds(60).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+    static final String DEVICE_STAMP=java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss").withZone(java.time.ZoneId.of("Asia/Shanghai")).format(DEVICE_TIME);
     @Configuration @EnableTransactionManagement
     static class Config {
         @Bean DataSource dataSource(){return new DriverManagerDataSource("jdbc:h2:mem:workflow;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1","sa","");}
@@ -30,7 +32,7 @@ class WorkflowTest {
         @Bean DataSourceTransactionManager transactionManager(DataSource d){return new DataSourceTransactionManager(d);}
         @Bean WanceDataService wance() throws IOException {
             var dir=Files.createTempDirectory("workflow-wance-");
-            var file=dir.resolve("2024-04-25-09-24-49.mdb");
+            var file=dir.resolve(DEVICE_STAMP+".mdb");
             dir.toFile().deleteOnExit();file.toFile().deleteOnExit();
             try(var database=com.healthmarketscience.jackcess.DatabaseBuilder.create(
                     com.healthmarketscience.jackcess.Database.FileFormat.V2000,file.toFile())) {
@@ -44,7 +46,17 @@ class WorkflowTest {
                 table.addRow(1,1,0.0,0.0,0.0);
                 table.addRow(2,1,1.0,2000.0,0.5);
                 table.addRow(3,1,2.0,3000.0,1.0);
+                var head=new com.healthmarketscience.jackcess.TableBuilder("ReportSecondHead")
+                        .addColumn(new com.healthmarketscience.jackcess.ColumnBuilder("Name",com.healthmarketscience.jackcess.DataType.TEXT))
+                        .addColumn(new com.healthmarketscience.jackcess.ColumnBuilder("Unit",com.healthmarketscience.jackcess.DataType.TEXT))
+                        .addColumn(new com.healthmarketscience.jackcess.ColumnBuilder("Col",com.healthmarketscience.jackcess.DataType.LONG)).toTable(database);
+                head.addRow("抗拉强度Rm","MPa",2);
+                var body=new com.healthmarketscience.jackcess.TableBuilder("ReportSecondBody")
+                        .addColumn(new com.healthmarketscience.jackcess.ColumnBuilder("Value",com.healthmarketscience.jackcess.DataType.TEXT))
+                        .addColumn(new com.healthmarketscience.jackcess.ColumnBuilder("Col",com.healthmarketscience.jackcess.DataType.LONG)).toTable(database);
+                body.addRow("37.5",2);
             }
+            Files.setLastModifiedTime(file,java.nio.file.attribute.FileTime.from(java.time.Instant.now().minusSeconds(10)));
             return new WanceDataService(dir.toString(),"");
         }
         @Bean RunService runs(JdbcTemplate db,WanceDataService wance){return new RunService(db,wance);}
@@ -54,7 +66,7 @@ class WorkflowTest {
         @Bean TeachingService teaching(RunService r,ReportParser p){return new TeachingService(r,p);}
         @Bean ReviewService review(RunService r,TeachingService t){return new ReviewService(r,t,new DifyService(),new FractureService());}
     }
-    @Autowired ClassroomService classroom;@Autowired ReportDeskService desk;@Autowired RunService runs;@Autowired TeachingService teaching;@Autowired ReviewService review;@Autowired JdbcTemplate db;
+    @Autowired ClassroomService classroom;@Autowired ReportDeskService desk;@Autowired RunService runs;@Autowired TeachingService teaching;@Autowired ReviewService review;@Autowired JdbcTemplate db;@Autowired WanceDataService wance;
     final Actor teacher=new Actor(true,"教师"),student=new Actor(false,"s1"),mate=new Actor(false,"s2"),outsider=new Actor(false,"s3");
     String runId;
     @BeforeEach void setup() {
@@ -64,7 +76,7 @@ class WorkflowTest {
         db.execute("CREATE TABLE task_groups(task_id VARCHAR(64),group_id VARCHAR(32))");
         db.execute("CREATE TABLE lab_groups(id VARCHAR(32),name VARCHAR(64))");
         db.execute("CREATE TABLE group_reports(task_id VARCHAR(64),group_id VARCHAR(32),data_json LONGTEXT,score DOUBLE,comment LONGTEXT,deductions_json LONGTEXT)");
-        db.update("INSERT INTO tasks VALUES('task','TENS','材料拉伸','第一节')");
+        db.update("INSERT INTO tasks VALUES('task','TENS','材料拉伸',?)",DEVICE_TIME.minusSeconds(3600).toString());
         db.update("INSERT INTO lab_groups VALUES('g1','第一组'),('g2','第二组')");
         db.update("INSERT INTO task_groups VALUES('task','g1'),('task','g2')");
         db.update("INSERT INTO students(sid,name,task_id,group_id) VALUES('s1','学生甲','task','g1'),('s2','学生乙','task','g1'),('s3','学生丙','task','g2')");
@@ -293,7 +305,7 @@ class WorkflowTest {
         var original=runs.load(runId,student,false);original.put("expId",ExperimentCatalog.COMBINED);
         db.update("UPDATE experiment_runs SET payload=? WHERE id=?",JsonUtil.write(original),runId);
         var first=runs.importWanceData(runId,student);
-        assertEquals("2024-04-25-09-24-49.mdb",map(first.get("data")).get("fileName"));
+        assertEquals(DEVICE_STAMP+".mdb",map(first.get("data")).get("fileName"));
         assertEquals("device_file",map(first.get("data")).get("sourceMode"));
         try {
             var request=new org.springframework.mock.web.MockHttpServletRequest();request.setParameter("trial","CAST_TENS");
@@ -302,6 +314,125 @@ class WorkflowTest {
         } finally {org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();}
         String other=str(runs.runs(outsider).get(0).get("id"));
         assertEquals(409,assertThrows(ApiException.class,()->runs.importWanceData(other,outsider)).getStatus());
+    }
+    @Test void existingCapturesReadNewMetricsFromTheirRetainedFileWithoutReacquisitionOrDatabaseChanges() {
+        runs.importWanceData(runId,student);var old=runs.load(runId,teacher,false);
+        map(old.get("data")).remove("deviceResults");runs.save(old,teacher,"历史格式记录");
+        var detail=runs.detail(runId,student);
+        assertEquals(37.5,map(map(detail.get("data")).get("deviceResults")).get("tensileStrength"));
+        assertEquals(old.get("revision"),detail.get("revision"));
+        assertFalse(map(runs.load(runId,teacher,false).get("data")).containsKey("deviceResults"));
+        assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM run_files WHERE kind='data'",Integer.class));
+    }
+    @Test void expiredAutomaticSourceCannotCreateOrReplaceData() {
+        String laterOpening=DEVICE_TIME.plusSeconds(30).toString();
+        db.update("UPDATE tasks SET time_text=? WHERE id='task'",laterOpening);
+        var missing=assertThrows(ApiException.class,()->runs.importWanceData(runId,student));
+        assertEquals(409,missing.getStatus());
+        assertTrue(missing.getMessage().contains("开课前的数据不会采集"));
+        assertNull(runs.detail(runId,student).get("data"));
+        assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM run_files WHERE kind='data'",Integer.class));
+        assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM experiment_data_claims",Integer.class));
+        db.update("UPDATE tasks SET time_text=? WHERE id='task'",DEVICE_TIME.minusSeconds(3600).toString());
+        var captured=map(runs.importWanceData(runId,student).get("data"));
+        db.update("UPDATE tasks SET time_text=? WHERE id='task'",laterOpening);
+        assertThrows(ApiException.class,()->runs.importWanceData(runId,student));
+        assertEquals(captured.get("fileId"),map(runs.detail(runId,student).get("data")).get("fileId"));
+        assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM run_files WHERE kind='data'",Integer.class));
+    }
+    MockMultipartFile wanceUpload(String name) throws Exception {
+        return new MockMultipartFile("file",name,"application/x-msaccess",Files.readAllBytes(wance.directory().resolve(DEVICE_STAMP+".mdb")));
+    }
+    @Test void temporaryFileCaptureUsesNormalDataUndoAndDuplicateRules() throws Exception {
+        var captured=runs.importWanceFile(runId,student,wanceUpload(DEVICE_STAMP+".mdb"),"127.0.0.1");
+        var data=map(captured.get("data"));
+        assertEquals("manual_test_file",data.get("sourceMode"));assertEquals(3,((Number)data.get("pointCount")).intValue());
+        assertEquals(DEVICE_TIME.toString(),data.get("experimentAtFromFile"));
+        assertThrows(ApiException.class,()->runs.importWanceFile(runId,outsider,wanceUpload(DEVICE_STAMP+".mdb"),"127.0.0.1"));
+        String other=str(runs.runs(outsider).get(0).get("id"));
+        assertThrows(ApiException.class,()->runs.importWanceFile(other,outsider,wanceUpload(DEVICE_STAMP+".mdb"),"127.0.0.1"));
+        runs.undoData(runId,student,Map.of("revision",captured.get("revision"),"fileId",data.get("fileId")));
+        var automatic=runs.importWanceData(runId,student);
+        assertEquals("device_file",map(automatic.get("data")).get("sourceMode"));
+    }
+    @Test void temporaryFileCaptureCannotBypassTimeFormatOrClosedRecordAndPreservesExistingData() throws Exception {
+        var captured=runs.importWanceData(runId,student);String fileId=str(map(captured.get("data")).get("fileId"));
+        assertEquals(409,assertThrows(ApiException.class,()->runs.importWanceFile(runId,student,wanceUpload("2024-04-25-09-24-49.mdb"),"127.0.0.1")).getStatus());
+        assertEquals(400,assertThrows(ApiException.class,()->runs.importWanceFile(runId,student,wanceUpload("test.mdb"),"127.0.0.1")).getStatus());
+        assertEquals(400,assertThrows(ApiException.class,()->runs.importWanceFile(runId,student,wanceUpload(DEVICE_STAMP+".csv"),"127.0.0.1")).getStatus());
+        var invalid=new MockMultipartFile("file",DEVICE_STAMP+".mdb","application/x-msaccess",new byte[]{1,2,3});
+        assertEquals(400,assertThrows(ApiException.class,()->runs.importWanceFile(runId,student,invalid,"127.0.0.1")).getStatus());
+        assertEquals(fileId,map(runs.detail(runId,student).get("data")).get("fileId"));
+        assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM run_files WHERE kind='data'",Integer.class));
+        db.update("UPDATE tasks SET time_text='2024-04-25 08:00' WHERE id='task'");
+        assertThrows(ApiException.class,()->runs.importWanceFile(runId,student,wanceUpload("2024-04-25-09-24-49.mdb"),"127.0.0.1"));
+        db.update("UPDATE tasks SET time_text=? WHERE id='task'",DEVICE_TIME.minusSeconds(3600).toString());
+        var record=runs.load(runId,teacher,false);record.put("archived",true);runs.save(record,teacher,"提交记录");
+        assertThrows(ApiException.class,()->runs.importWanceFile(runId,student,wanceUpload(DEVICE_STAMP+".mdb"),"127.0.0.1"));
+        assertEquals(fileId,map(runs.detail(runId,student).get("data")).get("fileId"));
+    }
+    @Test void expiredLessonClosesAutomaticAndManualCaptureEvenForFilesGeneratedWithinItsWindow() {
+        db.update("UPDATE tasks SET time_text='2024-04-25 08:00' WHERE id='task'");
+        assertTrue(assertThrows(ApiException.class,()->runs.importWanceData(runId,student)).getMessage().contains("采集时间已结束"));
+        var file=new MockMultipartFile("file","2024-04-25-09-24-49.csv","text/csv","位移,力\n0,0\n1,1000".getBytes(StandardCharsets.UTF_8));
+        assertTrue(assertThrows(ApiException.class,()->runs.importData(runId,student,file,2,1,0,"N")).getMessage().contains("采集时间已结束"));
+        assertNull(runs.detail(runId,student).get("data"));
+        assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM run_files WHERE kind='data'",Integer.class));
+        assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM experiment_data_claims",Integer.class));
+    }
+    @Test void undoDataChecksOwnershipAndCurrentFilePreservesPhotosAndHonorsCaptureDeadline() throws Exception {
+        runs.importWanceData(runId,student);runs.photo(runId,student,photo(),"正面");
+        var record=runs.load(runId,teacher,false);record.put("analysis",Map.of("result","old"));record.put("fractureSummary",Map.of("result","old"));record.put("geometry",Map.of("area",80));runs.save(record,teacher,"分析测试数据");
+        var data=map(record.get("data"));
+        var body=new LinkedHashMap<String,Object>(Map.of("revision",record.get("revision"),"fileId",data.get("fileId")));
+        assertEquals(403,assertThrows(ApiException.class,()->runs.undoData(runId,outsider,body)).getStatus());
+        assertThrows(ApiException.class,()->runs.undoData(runId,student,Map.of("revision",-1,"fileId",data.get("fileId"))));
+        assertThrows(ApiException.class,()->runs.undoData(runId,student,Map.of("revision",record.get("revision"),"fileId","changed")));
+        // Removing a mistaken capture remains possible after the deadline, but acquiring again does not.
+        db.update("UPDATE tasks SET time_text='2024-04-25 08:00' WHERE id='task'");
+        var undone=runs.undoData(runId,student,body);
+        assertNull(undone.get("data"));assertNull(undone.get("geometry"));assertNull(undone.get("experimentAt"));
+        var stored=runs.load(runId,teacher,false);assertNull(stored.get("analysis"));assertNull(stored.get("fractureSummary"));
+        assertEquals(1,list(undone.get("photos")).size());assertNotNull(runs.getFile(str(data.get("fileId")),student));
+        assertThrows(ApiException.class,()->runs.importWanceData(runId,student));
+        db.update("UPDATE tasks SET time_text=? WHERE id='task'",DEVICE_TIME.minusSeconds(3600).toString());
+        String other=str(runs.runs(outsider).get(0).get("id"));
+        assertThrows(ApiException.class,()->runs.importWanceData(other,outsider));
+        var recaptured=runs.importWanceData(runId,student);
+        var nextBody=Map.<String,Object>of("revision",recaptured.get("revision"),"fileId",map(recaptured.get("data")).get("fileId"));
+        var closed=runs.load(runId,teacher,false);closed.put("classOpen",false);runs.save(closed,teacher,"关闭记录");
+        assertThrows(ApiException.class,()->runs.undoData(runId,student,Map.of("revision",closed.get("revision"),"fileId",nextBody.get("fileId"))));
+        closed.put("classOpen",true);closed.put("archived",true);runs.save(closed,teacher,"提交记录");
+        assertThrows(ApiException.class,()->runs.undoData(runId,student,Map.of("revision",closed.get("revision"),"fileId",nextBody.get("fileId"))));
+        assertNotNull(runs.detail(runId,student).get("data"));
+    }
+    @Test void undoAffectsOnlySelectedTrialAndAllowsCorrectingTheFileToAnotherTrial() {
+        var record=runs.load(runId,teacher,false);record.put("expId",ExperimentCatalog.COMBINED);TrialRecords.project(record,"STEEL_TENS");runs.save(record,teacher,"多子实验");
+        var steel=runs.importWanceData(runId,student);
+        var request=new org.springframework.mock.web.MockHttpServletRequest();
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(new org.springframework.web.context.request.ServletRequestAttributes(request));
+        try {
+            request.setParameter("trial","CAST_TENS");var cast=runs.importData(runId,student,csv(),2,1,0,"N");String castFile=str(map(cast.get("data")).get("fileId"));
+            request.setParameter("trial","STEEL_TENS");var current=runs.detail(runId,student);
+            var undone=runs.undoData(runId,student,Map.of("revision",current.get("revision"),"fileId",map(steel.get("data")).get("fileId")));
+            assertNull(undone.get("data"));assertFalse(Boolean.TRUE.equals(list(undone.get("trialItems")).get(0).get("dataReady")));
+            request.setParameter("trial","CAST_TENS");assertEquals(castFile,map(runs.detail(runId,student).get("data")).get("fileId"));
+            var corrected=runs.importWanceData(runId,student);assertEquals(DEVICE_STAMP+".mdb",map(corrected.get("data")).get("fileName"));
+            request.setParameter("trial","STEEL_TENS");assertThrows(ApiException.class,()->runs.importWanceData(runId,student));
+        } finally {org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();}
+    }
+    @Test void uploadedFilesCannotBypassTimeOrSubtrialReuseChecks() throws Exception {
+        byte[] bytes=csv().getBytes();
+        assertEquals(409,assertThrows(ApiException.class,()->runs.importData(runId,student,new MockMultipartFile("file","2024-04-24-10-00-00.csv","text/csv",bytes),2,1,0,"N")).getStatus());
+        assertEquals(400,assertThrows(ApiException.class,()->runs.importData(runId,student,new MockMultipartFile("file","data.csv","text/csv",bytes),2,1,0,"N")).getStatus());
+        var record=runs.load(runId,student,false);record.put("expId",ExperimentCatalog.COMBINED);db.update("UPDATE experiment_runs SET payload=? WHERE id=?",JsonUtil.write(record),runId);
+        var file=csv();runs.importData(runId,student,file,2,1,0,"N");
+        try {
+            var request=new org.springframework.mock.web.MockHttpServletRequest();request.setParameter("trial","CAST_TENS");
+            org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(new org.springframework.web.context.request.ServletRequestAttributes(request));
+            assertEquals(409,assertThrows(ApiException.class,()->runs.importData(runId,student,file,2,1,0,"N")).getStatus());
+            assertNull(runs.detail(runId,student).get("data"));
+        } finally {org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();}
     }
     @Test void dataFileCannotBeReusedByAnotherGroup() {
         runs.importData(runId,student,csv(),2,1,0,"N");
@@ -384,7 +515,12 @@ class WorkflowTest {
     }
 
     Map<String,Object> body(String key,Object value) {var b=new LinkedHashMap<String,Object>();b.put("revision",runs.detail(runId,teacher).get("revision"));b.put(key,value);return b;}
-    MockMultipartFile csv() {return new MockMultipartFile("file","data.csv","text/csv","位移,力\n0,0\n1,1000\n2,2000".getBytes(StandardCharsets.UTF_8));}
+    MockMultipartFile csv() {
+        var record=runs.detail(runId,student);
+        String time=str(record.get("parentId")).isEmpty()?DEVICE_STAMP:java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss").withZone(java.time.ZoneId.of("Asia/Shanghai")).format(java.time.Instant.now());
+        String tag=runId+"-"+str(record.get("trialId"));
+        return new MockMultipartFile("file",time+".csv","text/csv",("位移,力,试次\n0,0,"+tag+"\n1,1000,"+tag+"\n2,2000,"+tag).getBytes(StandardCharsets.UTF_8));
+    }
     MockMultipartFile photo() throws Exception {var out=new ByteArrayOutputStream();ImageIO.write(new BufferedImage(500,500,BufferedImage.TYPE_INT_RGB),"png",out);return new MockMultipartFile("file","fracture.png","image/png",out.toByteArray());}
     void legacyArchive() throws Exception {
         collect();

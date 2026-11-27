@@ -69,9 +69,11 @@ public class WorkflowController {
     }
     @DeleteMapping("/runs/{id}/photos/{fid}") public Object removePhoto(HttpServletRequest q,@PathVariable String id,@PathVariable String fid) {return runs.removePhoto(id,fid,actor(q));}
     @PostMapping("/preview") public Object preview(HttpServletRequest q,@RequestParam MultipartFile file) {actor(q);return runs.preview(file);}
-    @GetMapping("/wance/status") public Object wanceStatus(HttpServletRequest q) throws Exception { actor(q); return runs.wanceStatus(); }
-    @PostMapping("/runs/{id}/data/wance") public Object wanceData(HttpServletRequest q,@PathVariable String id) {return runs.importWanceData(id,actor(q));}
-    @PostMapping("/runs/{id}/data") public Object data(HttpServletRequest q,@PathVariable String id,@RequestParam MultipartFile file,@RequestParam int start,@RequestParam int force,@RequestParam int displacement,@RequestParam String unit) {return runs.importData(id,actor(q),file,start,force,displacement,unit);}
+    @GetMapping("/wance/status") public Object wanceStatus(HttpServletRequest q) { actor(q); return runs.wanceStatus(q.getRemoteAddr()); }
+    @PostMapping("/runs/{id}/data/wance") public Object wanceData(HttpServletRequest q,@PathVariable String id) {return runs.importWanceData(id,actor(q),q.getRemoteAddr());}
+    @PostMapping("/runs/{id}/data/wance-file") public Object wanceFile(HttpServletRequest q,@PathVariable String id,@RequestParam MultipartFile file) {return runs.importWanceFile(id,actor(q),file,q.getRemoteAddr());}
+    @DeleteMapping("/runs/{id}/data") public Object undoData(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> body) {return runs.undoData(id,actor(q),body);}
+    @PostMapping("/runs/{id}/data") public Object data(HttpServletRequest q,@PathVariable String id,@RequestParam MultipartFile file,@RequestParam int start,@RequestParam int force,@RequestParam int displacement,@RequestParam String unit) {return runs.importData(id,actor(q),file,start,force,displacement,unit,q.getRemoteAddr());}
     static String str(Object v) { return v==null?"":v.toString().trim(); }
     @PostMapping("/runs/{id}/archive") public Object archive(HttpServletRequest q,@PathVariable String id,@RequestBody Map<String,Object> b) {
         Map<String,Object> archived=runs.archive(id,actor(q),b);

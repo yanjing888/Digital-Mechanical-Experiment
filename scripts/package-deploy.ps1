@@ -26,7 +26,23 @@ foreach ($file in @('app.py', 'macro.py', 'analyze.py', 'requirements.txt')) {
 Copy-Item -LiteralPath '.env.example' -Destination "$deployRoot/.env.example"
 Copy-Item -Path 'scripts/deploy/*' -Destination $deployRoot
 # Write a portable data directory instead of copying workstation-specific paths.
-[IO.File]::WriteAllText("$deployRoot/config/wance.properties", "data.dir=data`n", [Text.UTF8Encoding]::new($false))
+$captureConfig = @'
+# Standalone mode. For a central server, configure the independent stations below.
+data.dir=data
+data.station-id=local
+data.settle-seconds=2
+# data.clients=127.0.0.1,::1
+
+# Use real capture-computer IPs and paths readable by the SERVER account.
+# station.ids=machine1,machine2
+# station.machine1.name=Bench 1
+# station.machine1.clients=192.168.1.101
+# station.machine1.dir=//LAB-PC-01/TestPilotData
+# station.machine2.name=Bench 2
+# station.machine2.clients=192.168.1.102
+# station.machine2.dir=//LAB-PC-02/TestPilotData
+'@
+[IO.File]::WriteAllText("$deployRoot/config/wance.properties", $captureConfig + "`n", [Text.UTF8Encoding]::new($false))
 $archive = "$bundleRoot.zip"
 Compress-Archive -LiteralPath $deployRoot -DestinationPath $archive
 Write-Host "Deployment ZIP: $archive"
